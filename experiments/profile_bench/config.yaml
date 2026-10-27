@@ -1,0 +1,29 @@
+# CXIDB 33 (HEWL, SACLA BL3, MPCCD, 7 keV; Nakane et al. 2015 native S/Cl SAD), Dataset A.
+# Every path below that is not under the repository is site-specific: edit `data` and the tool paths.
+data: /media/kmdalton/3bd97678-a8fe-47cb-bdd2-b2fdcc5569b1/data/xtal/cxidb_33
+url: https://www.cxidb.org/data/33/cxidb_33_DatasetA.h5.tar
+md5: metadata/Dataset_A.md5sum              # relative to data; from cxidb_33_metadata.tar.gz
+geom: metadata/Dataset_A-opt.geom           # the deposit's refined geometry
+# runs: [run179641, ...]                    # default: every run in the md5 list that is on disk
+
+glint: /home/kmdalton/opt/glint
+python: /home/kmdalton/micromamba/bin/python          # torch + GLINT's dependencies
+abismal_bin: /home/kmdalton/micromamba/envs/abismal/bin
+phenix_env: /home/kmdalton/opt/phenix-1.21.2-5419/phenix_env.sh
+
+# reference model and the R-free flags both arms share (rs.rfree -d 1.0 -r 0.1)
+reference_pdb: reference/4YOP.pdb
+rfree_mtz: reference/r-free-flags.mtz
+
+cell: [79.2, 79.2, 37.9, 90, 90, 90]
+lattice: tP
+space_group: P 43 21 2
+adu_per_photon: 10          # deposit README: 1 photon = 10 counts
+sig_floor: 10               # v4 finder, detector units (= 1 photon)
+abs_thr: 100                # v4 finder, detector units (= 10 photons)
+dmin: 1.9                   # integration / merging limit; the detector corner is ~1.94 A at 52 mm
+tol: 0.002                  # Ewald gate, 1/A (found spots: 95% < 0.00084, 99% < 0.0014)
+
+integrators: [box, profile]
+abismal_epochs: 30
+abismal_steps: 1000

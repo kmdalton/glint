@@ -1,0 +1,175 @@
+# GLINT box integration vs the laue-dials profile fit (glint.profile_integrate), end to end on real
+# SFX data: CXIDB 33 Dataset A (HEWL, SACLA, 7 keV), merged with abismal, refined with phenix
+# against 4YOP, and scored on Rwork/Rfree and on the S/Cl anomalous difference peaks.
+#
+#   snakemake -s Snakefile --configfile config.yaml -j 10 --resources gpu=2
+#
+# Re-running is incremental: start it while the 243 GB download is still landing and it processes
+# the runs already on disk; run it again later and only the new runs, and everything downstream of
+# them, are redone. `--config runs=[run179641,run179651]` pins the run list.
+import os
+import re
+
+DATA = config["data"]
+HERE = workflow.basedir
+PY = f"PYTHONPATH={config['glint']} {config['python']} -u"
+AB = config["abismal_bin"]
+INTEG = config["integrators"]
+CELL = " ".join(str(c) for c in config["cell"])
+W = f"{DATA}/work"
+
+
+def _runs():
+    if "runs" in config:
+        return list(config["runs"])
+    names = [ln.split()[1][:-3] for ln in open(f"{DATA}/{config['md5']}") if ln.strip()]
+    return [r for r in names if os.path.exists(f"{DATA}/raw/A/{r}.h5")]
+
+
+RUNS = _runs()
+WAVELENGTH = 1.7684          # 7011 eV; mean over the run files' photon_energy_ev
+
+
+rule all:
+    input:
+        f"{W}/report/summary.json",
+
+
+rule fetch:
+    """Stream-extract the Dataset A tar (no second copy on disk). Skips members already present."""
+    output:
+        touch(f"{DATA}/raw/A/.complete"),
+    log:
+        f"{DATA}/logs/fetch_A.log",
+    shell:
+        "{config[python]} -I {HERE}/fetch_tar.py {config[url]} {DATA}/raw/A > {log} 2>&1"
+
+
+rule md5:
+    input:
+        f"{DATA}/raw/A/{{run}}.h5",
+    output:
+        f"{W}/md5/{{run}}.ok",
+    shell:
+        "cd {DATA}/raw/A && grep ' {wildcards.run}.h5$' {DATA}/{config[md5]} | md5sum -c - > {output}"
+
+
+rule geom:
+    input:
+        f"{DATA}/{config['geom']}",
+    output:
+        f"{W}/A.geom",
+    shell:
+        "sed -e 's#^data = .*#data = /entry_1/data_1/data#' "
+        "-e 's#^photon_energy = .*#photon_energy = /LCLS/photon_energy_eV#' {input} > {output}"
+
+
+rule stack:
+    """Zero-copy (event, ss, fs) virtual-dataset view of a Cheetah per-tag run file."""
+    input:
+        raw=f"{DATA}/raw/A/{{run}}.h5",
+        ok=f"{W}/md5/{{run}}.ok",
+    output:
+        f"{W}/stacked/{{run}}.h5",
+    shell:
+        "{config[python]} -I {HERE}/stack_sacla.py {input.raw} {output}"
+
+
+rule peaks:
+    """GLINT v4 peak finding on the host CPU."""
+    input:
+        img=f"{W}/stacked/{{run}}.h5",
+        geom=f"{W}/A.geom",
+    output:
+        f"{W}/peaks/{{run}}.npz",
+    log:
+        f"{W}/logs/peaks_{{run}}.log",
+    threads: 1
+    shell:
+        "OMP_NUM_THREADS=1 {PY} {HERE}/find_peaks.py --images {input.img} --geom {input.geom} -o {output} "
+        "--sig-floor {config[sig_floor]} --abs-thr {config[abs_thr]} > {log} 2>&1"
+
+
+rule index_integrate:
+    """Index once on the GPU, then integrate the same orientations with every integrator."""
+    input:
+        peaks=f"{W}/peaks/{{run}}.npz",
+        img=f"{W}/stacked/{{run}}.h5",
+        geom=f"{W}/A.geom",
+    output:
+        streams=[f"{W}/streams/{i}/{{run}}.stream" for i in INTEG],
+        log=f"{W}/streams/{{run}}.json",
+    log:
+        f"{W}/logs/index_integrate_{{run}}.log",
+    params:
+        integ=",".join(INTEG),
+    resources:
+        gpu=1,
+    shell:
+        "{PY} {HERE}/index_integrate.py --peaks {input.peaks} --images {input.img} --geom {input.geom} "
+        "--cell {CELL} --lattice {config[lattice]} --out-dir {W}/streams --name {wildcards.run} "
+        "--integrators {params.integ} --adu-per-photon {config[adu_per_photon]} "
+        "--dmin {config[dmin]} --tol {config[tol]} > {log} 2>&1"
+
+
+rule merge:
+    """abismal, anomalous, the same settings for every arm."""
+    input:
+        lambda w: expand(f"{W}/streams/{w.integ}/{{run}}.stream", run=RUNS),
+    output:
+        directory(f"{W}/merge/{{integ}}"),
+    log:
+        f"{W}/logs/merge_{{integ}}.log",
+    resources:
+        gpu=1,
+    threads: 8
+    shell:
+        "{AB}/abismal --anomalous --dmin {config[dmin]} --cell {CELL} "
+        "--space-group '{config[space_group]}' --epochs {config[abismal_epochs]} "
+        "--steps-per-epoch {config[abismal_steps]} --num-cpus {threads} -o {output} {input} > {log} 2>&1"
+
+
+rule refine:
+    input:
+        merge=f"{W}/merge/{{integ}}",
+        pdb=f"{DATA}/{config['reference_pdb']}",
+        rfree=f"{DATA}/{config['rfree_mtz']}",
+    output:
+        pdb=f"{W}/refine/{{integ}}/refine_1.pdb",
+        mtz=f"{W}/refine/{{integ}}/refine_1.mtz",
+        log=f"{W}/refine/{{integ}}/refine_1.log",
+    params:
+        mtz=lambda w: f"{W}/merge/{w.integ}/asu_0_epoch_{config['abismal_epochs']}.mtz",
+    shell:
+        "mkdir -p {W}/refine/{wildcards.integ} && cd {W}/refine/{wildcards.integ} && "
+        "sed -e 's#@MTZ@#{params.mtz}#g' -e 's#@RFREE@#{input.rfree}#g' -e 's#@PDB@#{input.pdb}#g' "
+        "-e 's#@CELL@#{CELL}#' -e \"s#@SG@#{config[space_group]}#\" -e 's#@WAVELENGTH@#{WAVELENGTH}#' "
+        "-e 's#@PREFIX@#refine#' {HERE}/refine.eff.in > refine.eff && "
+        "set +u && source {config[phenix_env]} && phenix.refine refine.eff > phenix.out 2>&1"
+
+
+rule anom_peaks:
+    input:
+        mtz=f"{W}/refine/{{integ}}/refine_1.mtz",
+        pdb=f"{W}/refine/{{integ}}/refine_1.pdb",
+    output:
+        f"{W}/refine/{{integ}}/anom_peaks.json",
+    shell:
+        "{AB}/python {HERE}/anom_peaks.py {input.mtz} {input.pdb} -o {output}"
+
+
+rule report:
+    input:
+        runs=expand(f"{W}/streams/{{run}}.json", run=RUNS),
+        refine=expand(f"{W}/refine/{{integ}}/refine_1.log", integ=INTEG),
+        anom=expand(f"{W}/refine/{{integ}}/anom_peaks.json", integ=INTEG),
+        streams=expand(f"{W}/streams/{{integ}}/{{run}}.stream", integ=INTEG, run=RUNS),
+    output:
+        f"{W}/report/summary.json",
+    params:
+        integ=",".join(INTEG),
+    log:
+        f"{W}/logs/report.log",
+    shell:
+        "{AB}/python {HERE}/report.py --work {W} --integrators {params.integ} "
+        "--runs {RUNS} --pdb {DATA}/{config[reference_pdb]} -o {output} > {log} 2>&1"
