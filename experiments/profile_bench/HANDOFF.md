@@ -13,59 +13,55 @@ Status as of 2026-11-04. Branch `profile-integrate`.
 Parts 1 and 2 are done. Part 3 ran end to end on the full dataset on Perlmutter on 2026-10-27, but
 its numbers do not yet answer the question: see the open problems. `RESULTS.md` is not written.
 
-## Results of the 2026-10-27 run
+## Results
 
-39 runs, 82,039 frames with peaks, 69,361 indexed (85%). Outputs are in
-`/pscratch/sd/k/kmdalton/cxidb_33/work/report/` (`summary.json`, `cchalf*.json`, `cchalf.png`).
+39 runs, 82,039 frames with peaks, 69,361 indexed (85%). Outputs are under
+`/pscratch/sd/k/kmdalton/cxidb_33/work/`: `partialator/` (merge, refine, report), `merge`, `refine` and
+`report` (the abismal run of 2026-10-27), `probe/deposited` and `probe/common` (below).
 
-| | box | profile |
-|---|---|---|
-| reflections | 41.0 M | 42.3 M |
-| CC1/2 overall (merge-free, `cchalf.py`) | 0.982 | 0.997 |
-| CC1/2, 2.07-2.03 A | 0.57 | 0.83 |
-| CC1/2, 2.03-1.99 A | 0.32 | 0.69 |
-| final Rwork / Rfree (abismal, torchref) | 0.300 / 0.346 | 0.305 / 0.352 |
-| mean S peak / best non-site peak (sigma) | 2.48 / 4.37 | 2.51 / 4.38 |
+Fixed coordinates, torchref protocol of `refine_torchref.py`. 4YOP's deposit reports 0.157 / 0.191.
+Free flags are ours, and the model was refined against these reflections, so Rfree is optimistic.
+
+| merge | limit | reflections | box Rwork / Rfree | profile Rwork / Rfree |
+|---|---|---|---|---|
+| abismal | 1.9 A | each arm's own | 0.300 / 0.346 | 0.305 / 0.352 |
+| partialator | 1.9 A | each arm's own | 0.173 / 0.187 | 0.185 / 0.197 |
+| partialator | 1.9 A | common, both mates | 0.173 / 0.187 | 0.170 / 0.182 |
+| partialator | 2.1 A | common, both mates | 0.163 / 0.176 | 0.162 / 0.176 |
+| deposited I(+)/I(-) (control) | 2.1 A | deposit's | 0.157 / 0.165 | |
+
+- **The bad R factors came from the abismal merges, not refinement or the model.** The control shows
+  the protocol reproduces the deposit's Rwork. Why these abismal merges were poor is not established;
+  they were run at the branch's defaults, and their amplitudes fall off far too slowly with resolution.
+- **Profile's deficit in the second row is a reflection-set artefact.** It keeps 523 more reflections with
+  both mates, nearly all past 2.0 A and poor. On common reflections it wins past 2.1 A (per-shell R,
+  separately scaled: 2.1-2.0 A 0.209 vs 0.234, 2.0-1.9 A 0.243 vs 0.325) and ties below that.
+- **Half-dataset CC1/2** (partialator, Bijvoet mates averaged): 2.05-2.0 A 0.919 vs 0.930,
+  2.0-1.95 A 0.788 vs 0.877 (box vs profile). 1.95-1.9 A is unusable in both (0.21, -0.29).
+- **Anomalous peaks now clear the null, with no difference between arms.** Common set at 1.9 A: mean
+  S 5.55 sigma, best non-site 4.69 (box); 5.63, 4.37 (profile).
+- **The anomalous signal is weak.** Rank CCano is ~0.04 overall in both arms; Pearson CCano is dominated
+  by outliers (largest difference ~90x the median) and should not be quoted. Rank CC of the difference
+  to 4YOP's prediction is 0.24-0.25 overall; the deposited data gets 0.44.
 
 ## Open problems
 
-**Refinement statistics are far too high.** 4YOP's deposit reports 0.157 / 0.191 at 2.1 A.
-- These merges are abismal's. The merge is to be switched to partialator, to find out how much of
-  this is the merge.
-- R is 0.32 even below 4 A, which suggests solvent or scaling. Not tested.
-- ADP refinement raises Rfree in both arms (box 0.341 -> 0.346, profile 0.346 -> 0.352).
-- Box's 0.5-point lead depends on scaling. With a separate scale per shell (F-obs vs F-model,
-  work + free), profile has the lower R in every shell but 2.0-1.9 A, by 0.3-0.8 points.
-
-**The anomalous peak heights do not measure the signal.** No S site beats the best non-site peak,
-but the signal is in the merges.
-- CC(F(+)-F(-), the difference predicted from 4YOP) is 0.33-0.44 per shell to 2.3 A with the right
-  sign, and ~0.01 at 2.3-1.9 A. All 1,048 lattices of the one run checked (run179641) are right-handed.
-- A map from F(+)-F(-) with phases phi_model - 90 reproduces `anom_peaks.py`'s heights, so
-  torchref's ANOM map is not at fault.
-- Cutting that map at 2.3 A lifts the S sites from 2.5 to ~7.5 sigma, but the best non-site peak
-  reaches 8.2-8.5 sigma. It has not been located. These checks were throwaway scripts, not in git.
-- `cchalf_anom.json` keeps Friedel mates apart but is dominated by the mean intensity. It is not
-  CCanom.
-
-**CC1/2 gains more than agreement with the model does.** At 2.1-2.0 A, CC(F-obs, F-model) only goes
-from 0.46 to 0.49. `cchalf.py` is an unweighted merge with no partiality model and drops 12-14% of
-frames, a slightly different set per arm.
-
-**Sigma calibration is unchecked.** Profile's sigmas are 35% smaller than box's on the same
-reflections, so its better I/sigma is not evidence yet.
-
-**Speed.** The workflow's 68 vs 70 ms per frame (box vs profile) disagrees with the bench's 6 vs 42,
-probably because image reading dominates. Re-measure on an idle A100 before quoting either.
+- Our anomalous signal is about half the deposit's. Not explained. Candidates: outliers in the
+  differences, scaling, fewer frames than the deposit used.
+- Sigma calibration is unchecked. Profile's sigmas are 35% smaller than box's on the same reflections.
+- GLINT writes placeholder `profile_radius`, `beam_bandwidth` and `beam_divergence` into its streams,
+  so partialator's partiality models (xsphere) cannot be used, only unity.
+- The CrystFEL build is a third-party Shifter image, not an env of our own. It is the wrong answer
+  long-term: CrystFEL is not on conda-forge or bioconda and needs building from source.
+- Speed: the workflow's 68 vs 70 ms per frame (box vs profile) disagrees with the bench's 6 vs 42,
+  probably because image reading dominates. Re-measure on an idle A100 before quoting either.
 
 ## Next
 
-1. Merge with partialator; compare refinement to the abismal numbers above.
-2. Find out why R is high: solvent, scaling, ADP, and the 1.9 A limit (the deposit stops at 2.1 A).
-3. A real anomalous test: CCanom from half-datasets, CC to the predicted difference, and peak heights
-   at a cutoff chosen independently of the arms. Locate the non-site peak.
-4. Check sigma calibration in both arms, then write `RESULTS.md`.
-5. Run `cchalf.py` from the Snakefile; it was run by hand, and `plot_cchalf.py` hard-codes the frame count.
+1. Decide the reporting limit and reflection set; add the common-set comparison to the Snakefile (it
+   was run by hand, as was `cchalf.py`).
+2. Find out why the anomalous signal falls short of the deposit's.
+3. Check sigma calibration in both arms, then write `RESULTS.md`.
 
 ## What is done
 
@@ -160,8 +156,8 @@ Decisions both arms share, measured on this data:
   sigma = 0; without the floor the finder returns 500–3300 "peaks" per frame.
 - **Index once, deep-copy the results into each arm** (`index_integrate.py`), so only the integrator
   differs.
-- **Merge (2026-10-27 run):** abismal PyTorch port, `--anomalous --dmin 1.9`, P43212, the branch's
-  defaults (10 epochs x 1000 steps).
+- **Merge:** partialator, point group 422, unity model, one iteration. (The 2026-10-27 run used abismal's
+  PyTorch port at the branch's defaults, 10 epochs x 1000 steps.)
 - **Refine:** torchref against 4YOP, B reset to 20, rigid body, 5 cycles of scale + isotropic ADP,
   shared free set from `make_rfree.py`. Individual sites stay fixed.
 - **Anomalous metric:** map height (sigma) within 1.5 Å of each Cys SG, Met SD, Cl and Na, and the
@@ -189,4 +185,4 @@ State on Perlmutter, not in git:
 
 - data at `/pscratch/sd/k/kmdalton/cxidb_33`: raw Dataset A (39 files, md5 checked), reference/,
   and work/ with stacks, peaks, streams, merges, refinements and the report. Scratch can be purged;
-- micromamba envs `glint` and `abismal` in `.mamba/` at the repository root.
+- micromamba envs `glint`, `abismal` and `crystfel` (empty: compilers only, the build did not happen) in `.mamba/` at the repository root.

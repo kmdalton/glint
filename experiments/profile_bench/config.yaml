@@ -9,7 +9,7 @@ geom: metadata/Dataset_A-opt.geom           # the deposit's refined geometry
 
 glint: /pscratch/sd/k/kmdalton/glint
 python: /pscratch/sd/k/kmdalton/glint/.mamba/envs/glint/bin/python   # torch, GLINT, torchref, rs, gemmi
-abismal_bin: /pscratch/sd/k/kmdalton/glint/.mamba/envs/glint/bin   # abismal, the PyTorch port (new-defaults)
+crystfel_image: fpoitevi/crystfel:latest   # Shifter image with partialator (CrystFEL 0.10.1-151)
 
 # reference model and the R-free flags both arms share (make_rfree.py)
 reference_pdb: reference/4YOP.pdb
@@ -25,6 +25,6 @@ dmin: 1.9                   # integration / merging limit; the detector corner i
 tol: 0.002                  # Ewald gate, 1/A (found spots: 95% < 0.00084, 99% < 0.0014)
 
 integrators: [box, profile]
-abismal_epochs: 10          # the new-defaults branch's default; names the MTZ refine reads
-abismal_seed: 0
+point_group: '422'          # no inversion: Bijvoet mates stay apart
+partialator_iterations: 1
 refine_cycles: 5

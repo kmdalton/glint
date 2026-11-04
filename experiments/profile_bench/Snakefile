@@ -1,5 +1,5 @@
 # GLINT box integration vs the laue-dials profile fit (glint.profile_integrate), end to end on real
-# SFX data: CXIDB 33 Dataset A (HEWL, SACLA, 7 keV), merged with abismal, refined with torchref
+# SFX data: CXIDB 33 Dataset A (HEWL, SACLA, 7 keV), merged with partialator, refined with torchref
 # against 4YOP, and scored on Rwork/Rfree and on the S/Cl anomalous difference peaks.
 #
 #   snakemake -s Snakefile --configfile config.yaml -j 10 --resources gpu=2
@@ -15,7 +15,7 @@ DATA = config["data"]
 HERE = workflow.basedir
 # PYTHONNOUSERSITE: a ~/.local/lib/pythonX.Y can shadow the env's own packages (pandas, gemmi, rs)
 PY = f"PYTHONNOUSERSITE=1 PYTHONPATH={config['glint']} {config['python']} -u"
-AB = config["abismal_bin"]
+PM = f"{config['data']}/work/partialator"      # the abismal merges and refinements stay in work/merge, work/refine
 INTEG = config["integrators"]
 CELL = " ".join(str(c) for c in config["cell"])
 W = f"{DATA}/work"
@@ -35,7 +35,7 @@ WAVELENGTH = 1.7684          # 7011 eV; mean over the run files' photon_energy_e
 
 rule all:
     input:
-        f"{W}/report/summary.json",
+        f"{PM}/report/summary.json",
 
 
 rule fetch:
@@ -125,20 +125,28 @@ rule index_integrate:
 
 
 rule merge:
-    """abismal (the PyTorch port, rs-station/abismal@new-defaults), anomalous, the same settings for
-    every arm. Epochs, steps and batch size are the branch's defaults (10 x 1000 steps, batch 1000)."""
+    """partialator, anomalous (point group 422 keeps Bijvoet mates apart), the same settings for every
+    arm. Unity model: GLINT's streams carry a placeholder profile radius, bandwidth and divergence, so
+    xsphere's partialities would be meaningless. Writes half-datasets (.hkl1, .hkl2) as well."""
     input:
         lambda w: expand(f"{W}/streams/{w.integ}/{{run}}.stream", run=RUNS),
     output:
-        directory(f"{W}/merge/{{integ}}"),
+        hkl=f"{PM}/merge/{{integ}}/merged.hkl",
+        hkl1=f"{PM}/merge/{{integ}}/merged.hkl1",
+        hkl2=f"{PM}/merge/{{integ}}/merged.hkl2",
+        mtz=f"{PM}/merge/{{integ}}/merged.mtz",
     log:
-        f"{W}/logs/merge_{{integ}}.log",
+        f"{W}/logs/partialator_{{integ}}.log",
+    threads: 64
     resources:
-        gpu=1,
         runtime=240,
+        mem_mb=120000,
     shell:
-        "PYTHONNOUSERSITE=1 {AB}/abismal --anomalous --dmin {config[dmin]} --cell {CELL} "
-        "--space-group '{config[space_group]}' --seed {config[abismal_seed]} -o {output} {input} > {log} 2>&1"
+        "cd {PM}/merge/{wildcards.integ} && cat {input} > all.stream && "
+        "shifter --image={config[crystfel_image]} partialator -i all.stream -o merged.hkl -y {config[point_group]} "
+        "--model=unity --iterations={config[partialator_iterations]} --no-logs -j {threads} > {log} 2>&1 && "
+        "rm all.stream && "
+        "{PY} {HERE}/hkl_to_mtz.py merged.hkl -o merged.mtz --cell {CELL} --sg '{config[space_group]}' >> {log} 2>&1"
 
 
 rule rfree:
@@ -153,15 +161,13 @@ rule refine:
     """torchref: B reset to 20, rigid body, then scale + isotropic ADP cycles (refine_torchref.py).
     ~2 min on 8 CPU cores for HEWL to 1.9 A, so no GPU."""
     input:
-        merge=f"{W}/merge/{{integ}}",
+        mtz=f"{PM}/merge/{{integ}}/merged.mtz",
         pdb=f"{DATA}/{config['reference_pdb']}",
         rfree=f"{DATA}/{config['rfree_mtz']}",
     output:
-        pdb=f"{W}/refine/{{integ}}/refined.pdb",
-        mtz=f"{W}/refine/{{integ}}/refined.mtz",
-        stats=f"{W}/refine/{{integ}}/stats.json",
-    params:
-        mtz=lambda w: f"{W}/merge/{w.integ}/asu_0_epoch_{config['abismal_epochs']}.mtz",
+        pdb=f"{PM}/refine/{{integ}}/refined.pdb",
+        mtz=f"{PM}/refine/{{integ}}/refined.mtz",
+        stats=f"{PM}/refine/{{integ}}/stats.json",
     log:
         f"{W}/logs/refine_{{integ}}.log",
     threads: 8
@@ -169,17 +175,17 @@ rule refine:
         runtime=60,
         mem_mb=16000,
     shell:
-        "TORCHREF_NUM_THREADS={threads} {PY} {HERE}/refine_torchref.py --mtz {params.mtz} --flags {input.rfree} --pdb {input.pdb} "
+        "TORCHREF_NUM_THREADS={threads} {PY} {HERE}/refine_torchref.py --mtz {input.mtz} --flags {input.rfree} --pdb {input.pdb} "
         "--wavelength {WAVELENGTH} --dmin {config[dmin]} --cycles {config[refine_cycles]} "
-        "--device cpu -o {W}/refine/{wildcards.integ} > {log} 2>&1"
+        "--device cpu -o {PM}/refine/{wildcards.integ} > {log} 2>&1"
 
 
 rule anom_peaks:
     input:
-        mtz=f"{W}/refine/{{integ}}/refined.mtz",
-        pdb=f"{W}/refine/{{integ}}/refined.pdb",
+        mtz=f"{PM}/refine/{{integ}}/refined.mtz",
+        pdb=f"{PM}/refine/{{integ}}/refined.pdb",
     output:
-        f"{W}/refine/{{integ}}/anom_peaks.json",
+        f"{PM}/refine/{{integ}}/anom_peaks.json",
     shell:
         "{PY} {HERE}/anom_peaks.py {input.mtz} {input.pdb} -o {output}"
 
@@ -187,11 +193,11 @@ rule anom_peaks:
 rule report:
     input:
         runs=expand(f"{W}/streams/{{run}}.json", run=RUNS),
-        refine=expand(f"{W}/refine/{{integ}}/stats.json", integ=INTEG),
-        anom=expand(f"{W}/refine/{{integ}}/anom_peaks.json", integ=INTEG),
+        refine=expand(f"{PM}/refine/{{integ}}/stats.json", integ=INTEG),
+        anom=expand(f"{PM}/refine/{{integ}}/anom_peaks.json", integ=INTEG),
         streams=expand(f"{W}/streams/{{integ}}/{{run}}.stream", integ=INTEG, run=RUNS),
     output:
-        f"{W}/report/summary.json",
+        f"{PM}/report/summary.json",
     params:
         integ=",".join(INTEG),
     log:
@@ -200,5 +206,5 @@ rule report:
         runtime=60,
         mem_mb=32000,       # ~5 GB a arm for Dataset A's 41 M observations
     shell:
-        "{PY} {HERE}/report.py --work {W} --integrators {params.integ} "
+        "{PY} {HERE}/report.py --work {W} --refine-dir {PM}/refine --integrators {params.integ} "
         "--runs {RUNS} --pdb {DATA}/{config[reference_pdb]} -o {output} > {log} 2>&1"

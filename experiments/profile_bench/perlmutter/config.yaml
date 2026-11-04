@@ -17,5 +17,4 @@ default-resources:
   mem_mb: 1900
 set-resources:
   index_integrate: {slurm_account: m5149_g, constraint: gpu, cpus_per_gpu: 32, mem_mb: 50000}
-  merge: {slurm_account: m5149_g, constraint: gpu, cpus_per_gpu: 32, mem_mb: 50000}
 slurm-logdir: /pscratch/sd/k/kmdalton/cxidb_33/logs/slurm

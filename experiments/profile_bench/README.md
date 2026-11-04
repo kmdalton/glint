@@ -3,7 +3,7 @@
 GLINT's box integrator (`predict.integrate_spots`) against the laue-dials profile fit, ported to torch
 as `glint.profile_integrate` (`--integrate --integrator profile`). The comparison runs end to end on
 public data, from raw pixels to a refined structure: peak find, index, integrate both ways, merge
-each with abismal, refine each against the deposited model, and score on Rwork/Rfree and on the
+each with partialator, refine each against the deposited model, and score on Rwork/Rfree and on the
 anomalous difference peaks.
 
 ## Data: CXIDB 33, Dataset A
@@ -30,10 +30,8 @@ Edit `data` and the tool paths in `config.yaml` first. The workflow needs one Py
 
 * `pip install -e . torchref reciprocalspaceship gemmi snakemake snakemake-executor-plugin-slurm`
   from the GLINT checkout, for peak finding, indexing, both integrators, refinement and the report;
-* `pip install "abismal @ git+https://github.com/rs-station/abismal@b1a53cb5"`, abismal's PyTorch
-  port (`new-defaults` branch), for merging. The TensorFlow abismal 0.0.7 on PyPI cannot read several
-  .stream files in parallel: each file's reader leaves a ray session open and the next `ray.init`
-  fails;
+* CrystFEL's `partialator`, for merging. On Perlmutter that is the Shifter image in `crystfel_image`
+  (CrystFEL 0.10.1-151); the `merge` rule calls it through `shifter`, so edit the rule elsewhere;
 * the deposit's `cxidb_33_metadata.tar.gz`, unpacked into `data/metadata`;
 * `reference/4YOP.pdb`.
 
@@ -53,7 +51,7 @@ everything with `PYTHONNOUSERSITE=1`.
 | `stack` | int16 lzf `(event, ss, fs)` copy of each Cheetah per-tag file, one chunk per event (`stack_sacla.py`) |
 | `peaks` | GLINT v4 peak finding, host CPU, one job per run (`find_peaks.py`) |
 | `index_integrate` | GLINT known-cell indexing + strict gate on the GPU, then **the same orientations** integrated by each integrator (`index_integrate.py`) |
-| `merge` | abismal (PyTorch port, `new-defaults`), anomalous, identical settings and seed per arm |
+| `merge` | `partialator -y 422 --model=unity --iterations=1`, then French-Wilson per Bijvoet mate (`hkl_to_mtz.py`), identical settings per arm. Unity because GLINT's streams carry a placeholder profile radius, bandwidth and divergence |
 | `refine` | torchref against 4YOP: B reset to 20, rigid body, 5 cycles of scale + isotropic ADP, shared free set (`refine_torchref.py`) |
 | `rfree` | the shared free set, 10% per ASU index to 1.0 Å (`make_rfree.py`) |
 | `anom_peaks` | anomalous map height at every S, Cl and Na, and the best peak that is not a site (`anom_peaks.py`) |
@@ -89,4 +87,4 @@ other jobs:
 
 ## Results
 
-Not written up yet. The full run's numbers and what is wrong with them are in `HANDOFF.md`.
+Not written up yet. The current numbers and what remains open are in `HANDOFF.md`.

@@ -83,6 +83,7 @@ def main():
     ap.add_argument("--integrators", default="box,profile")
     ap.add_argument("--runs", nargs="+", required=True)
     ap.add_argument("--pdb", required=True)
+    ap.add_argument("--refine-dir", default=None, help="default: WORK/refine")
     ap.add_argument("--cell", nargs=6, type=float, default=[79.2, 79.2, 37.9, 90, 90, 90])
     ap.add_argument("--sg", default="P 43 21 2")
     ap.add_argument("--dmin", type=float, default=1.9)
@@ -165,13 +166,14 @@ def main():
 
     # --- refinement and anomalous peaks -------------------------------------------------------
     ref = {}
+    rdir = a.refine_dir or f"{a.work}/refine"
     for i in integs:
-        sp = f"{a.work}/refine/{i}/stats.json"
+        sp = f"{rdir}/{i}/stats.json"
         st = json.load(open(sp)) if os.path.exists(sp) else {}
         ref[i] = {"rwork": st.get("final", {}).get("rwork"), "rfree": st.get("final", {}).get("rfree"),
                   "start_rwork": st.get("start", {}).get("rwork"),
                   "start_rfree": st.get("start", {}).get("rfree")}
-        pk = f"{a.work}/refine/{i}/anom_peaks.json"
+        pk = f"{rdir}/{i}/anom_peaks.json"
         if os.path.exists(pk):
             ref[i]["anom"] = json.load(open(pk))
     out["refinement"] = ref
