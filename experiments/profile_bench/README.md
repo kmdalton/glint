@@ -9,7 +9,7 @@ anomalous difference peaks.
 ## Data: CXIDB 33, Dataset A
 
 Hen egg-white lysozyme at SACLA BL3, 7 keV (1.77 Å), MPCCD octal detector (Nakane *et al.* 2015,
-*Acta Cryst.* D71, 2519, native S/Cl SAD; PDB 4YOP). 39 Cheetah run files, ~47k hits, 243 GB, CC0.
+*Acta Cryst.* D71, 2519, native S/Cl SAD; PDB 4YOP). 39 Cheetah run files, 82,039 frames with peaks, 243 GB, CC0.
 At 7 keV the 10 sulfurs (8 Cys SG, 2 Met SD) and the chloride carry a measurable anomalous signal,
 so the anomalous map at those sites is the sharpest test of weak-signal integration.
 
@@ -22,27 +22,40 @@ and max-projection images, not per-shot frames. CXIDB 33's images are web-hosted
 
 ```bash
 cd experiments/profile_bench
-snakemake -s Snakefile --configfile config.yaml -j 10 --resources gpu=2
+snakemake -s Snakefile --configfile config.yaml -j 10 --resources gpu=2      # one machine
+snakemake -s Snakefile --configfile config.yaml --workflow-profile perlmutter  # one slurm job per step
 ```
 
-Edit `data` and the tool paths in `config.yaml` first. The workflow needs:
+Edit `data` and the tool paths in `config.yaml` first. The workflow needs one Python env (torch):
 
-* GLINT's python (torch), for peak finding, indexing and both integrators;
-* abismal, for merging, plus reciprocalspaceship and gemmi in the same env, for the report;
-* PHENIX, for refinement;
+* `pip install -e . torchref reciprocalspaceship gemmi snakemake snakemake-executor-plugin-slurm`
+  from the GLINT checkout, for peak finding, indexing, both integrators, refinement and the report;
+* `pip install "abismal @ git+https://github.com/rs-station/abismal@b1a53cb5"`, abismal's PyTorch
+  port (`new-defaults` branch), for merging. The TensorFlow abismal 0.0.7 on PyPI cannot read several
+  .stream files in parallel: each file's reader leaves a ray session open and the next `ray.init`
+  fails;
 * the deposit's `cxidb_33_metadata.tar.gz`, unpacked into `data/metadata`;
-* `reference/4YOP.pdb`;
-* `reference/r-free-flags.mtz` from `rs.rfree -c 79.2 79.2 37.9 90 90 90 -sg "P 43 21 2" -d 1.0 -r 0.1`.
+* `reference/4YOP.pdb`.
+
+The R-free flags (`reference/r-free-flags.mtz`) are made by the `rfree` rule.
+
+On NERSC Perlmutter the env is a micromamba env in the checkout (`.mamba/`, ignored by git), and
+`perlmutter/config.yaml` sends CPU steps to the shared QOS on `m5149` and GPU steps to one A100 on
+`m5149_g`. Run the controller itself as a job (`perlmutter/controller.sbatch`, in the `xfer` QOS),
+since login-node sessions do not outlive the shell that started them. A `~/.local/lib/pythonX.Y`
+there shadows the env's own packages (pandas, gemmi, reciprocalspaceship), so the Snakefile runs
+everything with `PYTHONNOUSERSITE=1`.
 
 | step | what |
 |---|---|
 | `fetch` | stream-extract the 243 GB tar over HTTP, resumable, no second copy on disk (`fetch_tar.py`) |
 | `md5` | check each run file against the deposit's md5 list |
-| `stack` | zero-copy virtual `(event, ss, fs)` view of each Cheetah per-tag file (`stack_sacla.py`) |
+| `stack` | int16 lzf `(event, ss, fs)` copy of each Cheetah per-tag file, one chunk per event (`stack_sacla.py`) |
 | `peaks` | GLINT v4 peak finding, host CPU, one job per run (`find_peaks.py`) |
 | `index_integrate` | GLINT known-cell indexing + strict gate on the GPU, then **the same orientations** integrated by each integrator (`index_integrate.py`) |
-| `merge` | abismal, anomalous, identical settings per arm |
-| `refine` | phenix.refine against 4YOP, B reset to 20, rigid body + ADP, shared free set (`refine.eff.in`) |
+| `merge` | abismal (PyTorch port, `new-defaults`), anomalous, identical settings and seed per arm |
+| `refine` | torchref against 4YOP: B reset to 20, rigid body, 5 cycles of scale + isotropic ADP, shared free set (`refine_torchref.py`) |
+| `rfree` | the shared free set, 10% per ASU index to 1.0 Å (`make_rfree.py`) |
 | `anom_peaks` | anomalous map height at every S, Cl and Na, and the best peak that is not a site (`anom_peaks.py`) |
 | `report` | `summary.json`: throughput, per-observation CC to \|Fcalc\|², the arms against each other, R factors, anomalous peaks (`report.py`) |
 
@@ -76,4 +89,4 @@ other jobs:
 
 ## Results
 
-See `RESULTS.md` once the workflow has run.
+Not written up yet. The full run's numbers and what is wrong with them are in `HANDOFF.md`.

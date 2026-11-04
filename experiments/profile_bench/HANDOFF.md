@@ -1,6 +1,6 @@
 # Handoff: laue-dials profile integration in GLINT, and the box-vs-profile benchmark
 
-Status as of 2026-10-27. Branch `profile-integrate`.
+Status as of 2026-11-04. Branch `profile-integrate`.
 
 ## Goal
 
@@ -10,9 +10,62 @@ Status as of 2026-10-27. Branch `profile-integrate`.
 3. Compare the two on a refined structure: Rwork/Rfree against a reference model, and anomalous
    peak heights. This runs as a workflow (Snakemake, `experiments/profile_bench/`).
 
-Parts 1 and 2 are done; the workflow up to integration is proven. Part 3 has not produced numbers:
-the full-dataset run was stopped by a memory problem in the data-staging step (below). The merge,
-refine and report steps have never run.
+Parts 1 and 2 are done. Part 3 ran end to end on the full dataset on Perlmutter on 2026-10-27, but
+its numbers do not yet answer the question: see the open problems. `RESULTS.md` is not written.
+
+## Results of the 2026-10-27 run
+
+39 runs, 82,039 frames with peaks, 69,361 indexed (85%). Outputs are in
+`/pscratch/sd/k/kmdalton/cxidb_33/work/report/` (`summary.json`, `cchalf*.json`, `cchalf.png`).
+
+| | box | profile |
+|---|---|---|
+| reflections | 41.0 M | 42.3 M |
+| CC1/2 overall (merge-free, `cchalf.py`) | 0.982 | 0.997 |
+| CC1/2, 2.07-2.03 A | 0.57 | 0.83 |
+| CC1/2, 2.03-1.99 A | 0.32 | 0.69 |
+| final Rwork / Rfree (abismal, torchref) | 0.300 / 0.346 | 0.305 / 0.352 |
+| mean S peak / best non-site peak (sigma) | 2.48 / 4.37 | 2.51 / 4.38 |
+
+## Open problems
+
+**Refinement statistics are far too high.** 4YOP's deposit reports 0.157 / 0.191 at 2.1 A.
+- These merges are abismal's. The merge is to be switched to partialator, to find out how much of
+  this is the merge.
+- R is 0.32 even below 4 A, which suggests solvent or scaling. Not tested.
+- ADP refinement raises Rfree in both arms (box 0.341 -> 0.346, profile 0.346 -> 0.352).
+- Box's 0.5-point lead depends on scaling. With a separate scale per shell (F-obs vs F-model,
+  work + free), profile has the lower R in every shell but 2.0-1.9 A, by 0.3-0.8 points.
+
+**The anomalous peak heights do not measure the signal.** No S site beats the best non-site peak,
+but the signal is in the merges.
+- CC(F(+)-F(-), the difference predicted from 4YOP) is 0.33-0.44 per shell to 2.3 A with the right
+  sign, and ~0.01 at 2.3-1.9 A. All 1,048 lattices of the one run checked (run179641) are right-handed.
+- A map from F(+)-F(-) with phases phi_model - 90 reproduces `anom_peaks.py`'s heights, so
+  torchref's ANOM map is not at fault.
+- Cutting that map at 2.3 A lifts the S sites from 2.5 to ~7.5 sigma, but the best non-site peak
+  reaches 8.2-8.5 sigma. It has not been located. These checks were throwaway scripts, not in git.
+- `cchalf_anom.json` keeps Friedel mates apart but is dominated by the mean intensity. It is not
+  CCanom.
+
+**CC1/2 gains more than agreement with the model does.** At 2.1-2.0 A, CC(F-obs, F-model) only goes
+from 0.46 to 0.49. `cchalf.py` is an unweighted merge with no partiality model and drops 12-14% of
+frames, a slightly different set per arm.
+
+**Sigma calibration is unchecked.** Profile's sigmas are 35% smaller than box's on the same
+reflections, so its better I/sigma is not evidence yet.
+
+**Speed.** The workflow's 68 vs 70 ms per frame (box vs profile) disagrees with the bench's 6 vs 42,
+probably because image reading dominates. Re-measure on an idle A100 before quoting either.
+
+## Next
+
+1. Merge with partialator; compare refinement to the abismal numbers above.
+2. Find out why R is high: solvent, scaling, ADP, and the 1.9 A limit (the deposit stops at 2.1 A).
+3. A real anomalous test: CCanom from half-datasets, CC to the predicted difference, and peak heights
+   at a cutoff chosen independently of the arms. Locate the non-site peak.
+4. Check sigma calibration in both arms, then write `RESULTS.md`.
+5. Run `cchalf.py` from the Snakefile; it was run by hand, and `plot_cchalf.py` hard-codes the frame count.
 
 ## What is done
 
@@ -71,7 +124,7 @@ Batch sweep, 126 frames (GPU, ms/frame and peak memory):
 ### Dataset: CXIDB 33 Dataset A (not 81)
 
 - HEWL, SACLA BL3, 7 keV / 1.77 Å, MPCCD; Nakane et al. 2015 native S/Cl SAD; PDB 4YOP; CC0.
-- 39 Cheetah run files, ~1200 hits each (~47k), 243 GB.
+- 39 Cheetah run files, 243 GB; 82,039 frames with peaks.
 - Web-hosted at `https://www.cxidb.org/data/33/cxidb_33_DatasetA.h5.tar`, a single plain tar;
   `fetch_tar.py` stream-extracts it.
 - Pixels are int16 at 10 ADU per photon, dark-subtracted and clipped at 0.
@@ -91,19 +144,11 @@ env (S3DF `ana-4.0.58-py3-minipytorch`); psana1 also installs from conda channel
 
 ### The workflow: `experiments/profile_bench/`
 
-`Snakefile` + `config.yaml`. Steps: fetch -> md5 -> stack -> peaks (CPU) -> index_integrate (GPU) ->
-merge (abismal) -> refine (phenix) -> anom_peaks -> report. `README.md` explains each step and the
-settings both arms share.
+`Snakefile` + `config.yaml`, with `perlmutter/` for slurm. Every step has run on all 39 runs;
+`README.md` explains each step and the settings both arms share.
 
-| step | status |
-|---|---|
-| fetch, md5, geom | ran |
-| stack | ran; **has the memory bug below** |
-| peaks, index_integrate | proven on a 100-frame probe of run179641: 99 frames with peaks, median 108 peaks per frame; 89 indexed after the strict gate (known cell); both arms wrote streams |
-| merge, refine, anom_peaks, report | **written, never run.** Expect first-run fixes |
-
-On the probe, box wrote 157k reflections and profile 162k. Box drops windows that straddle an edge;
-profile keeps clipped ones.
+On the first 100-frame probe, box wrote 157k reflections and profile 162k. Box drops windows that
+straddle an edge; profile keeps clipped ones.
 
 Decisions both arms share, measured on this data:
 
@@ -115,50 +160,20 @@ Decisions both arms share, measured on this data:
   sigma = 0; without the floor the finder returns 500–3300 "peaks" per frame.
 - **Index once, deep-copy the results into each arm** (`index_integrate.py`), so only the integrator
   differs.
-- **Merge:** abismal `--anomalous --dmin 1.9`, P43212, 30 epochs x 1000 steps (guessed; tune).
-- **Refine:** phenix.refine against 4YOP, B reset to 20, rigid body + ADP, 5 macro cycles, shared free
-  set from `rs.rfree -d 1.0 -r 0.1`. This mirrors the cxidb_81 abismal-benchmarks protocol; individual
-  sites are off there too.
+- **Merge (2026-10-27 run):** abismal PyTorch port, `--anomalous --dmin 1.9`, P43212, the branch's
+  defaults (10 epochs x 1000 steps).
+- **Refine:** torchref against 4YOP, B reset to 20, rigid body, 5 cycles of scale + isotropic ADP,
+  shared free set from `make_rfree.py`. Individual sites stay fixed.
 - **Anomalous metric:** map height (sigma) within 1.5 Å of each Cys SG, Met SD, Cl and Na, and the
   best peak more than 3 Å from all of them as the null. Plus, merge-free, per-shell CC of each arm's
   partial intensities with \|Fcalc\|² of 4YOP.
 
-## The open problem: stacking leaks memory
+## Stacking
 
-- `stack_sacla.py` builds a zero-copy HDF5 *virtual* dataset over each run's 1217 per-tag frames.
-- Read through h5py's default chunk cache, HDF5 keeps every source frame it has touched open with its
-  decompressed chunk: +14 MB per frame, ~17 GB per run.
-- Eight parallel peak-finding jobs reached 82 GB on a 123 GB box. I stopped the workflow before
-  anything was OOM-killed.
-- `h5py.File(..., rdcc_nbytes=0)` fixes it (+0.06 GB over 150 frames against +2.1 GB), but GLINT opens
-  the images itself. Pick one:
-  1. Write real stacked copies: int16 with lzf, ~6.8 GB per run, ~265 GB in total. No GLINT change.
-     Simplest on an HPC with scratch space.
-  2. Give GLINT's image reads (`frames_from_cxi`, `integrate_cxi`, `_load_image`) a small chunk cache.
-     This protects every VDS input, and Cheetah/psana .cxi often are VDS. But it re-decompresses a
-     chunk per event where chunks hold several events, so measure before changing defaults.
-
-Whichever you pick, also cap per-job memory in the Snakefile (`resources: mem_mb`) for the cluster.
-
-## On the HPC: to do, in order
-
-1. Move or re-fetch the data:
-   - `snakemake ... fetch` re-downloads Dataset A (~2 h at 35 MB/s), resumable;
-   - `metadata/` from `https://www.cxidb.org/data/33/cxidb_33_metadata.tar.gz`;
-   - `reference/4YOP.pdb` from RCSB;
-   - make `reference/r-free-flags.mtz` as in `README.md`.
-2. Fix the stacking leak (above).
-3. Edit `config.yaml` paths: data, python, abismal_bin, phenix_env. Add a Snakemake executor profile
-   (slurm) with `gpu` and `mem_mb` resources.
-4. **Peak finding is the bottleneck:** ~2–3 s per frame on one CPU core, ~35 CPU-hours for Dataset A.
-   Fine as an array job. Or move it to GLINT's GPU v4 finder (needs cupy; `frames_from_cxi` hands it
-   numpy now) for minutes instead of hours.
-5. Run through `index_integrate` and look at `streams/*.json` (indexing rate, reflections, timings).
-   Then run `merge`. abismal has never been fed a GLINT stream; check it parses (`abismal/io/crystfel.py`).
-6. `refine`, `anom_peaks`, `report`. All three are untested; the `refine.eff.in` labels assume abismal's
-   `F(+),SIGF(+),F(-),SIGF(-)`.
-7. Write `RESULTS.md`.
-8. Optional: the same workflow on CXIDB 81 if its xtc is reachable; the xtc bridge replaces stack/peaks.
+`stack_sacla.py` once built zero-copy HDF5 virtual datasets. Through h5py's default chunk cache,
+HDF5 keeps every source frame it has touched open with its decompressed chunk, ~17 GB a run. The
+workflow now writes real int16 lzf stacks instead, ~6.8 GB a run. GLINT's image reads still have
+that behaviour on any VDS input.
 
 ## Files
 
@@ -170,9 +185,8 @@ Whichever you pick, also cap per-job memory in the Snakefile (`resources: mem_mb
 | `experiments/profile_bench/` | workflow, scripts, README, this handoff |
 | `THIRD_PARTY_NOTICES.md`, `.github/workflows/ci.yml` | licence notice, CI step |
 
-Local state on the workstation, not in git:
+State on Perlmutter, not in git:
 
-- data at `/media/kmdalton/3bd97678-a8fe-47cb-bdd2-b2fdcc5569b1/data/xtal/cxidb_33`: raw Dataset A
-  complete (39 files, md5 checked for 7), reference/, flags, and work/ with probe and speed outputs;
-- `.../xtal/cxidb_81_raw/data.tar.gz`: CXIDB 81 processed data, no pixels, deletable;
-- micromamba env `snakemake`.
+- data at `/pscratch/sd/k/kmdalton/cxidb_33`: raw Dataset A (39 files, md5 checked), reference/,
+  and work/ with stacks, peaks, streams, merges, refinements and the report. Scratch can be purged;
+- micromamba envs `glint` and `abismal` in `.mamba/` at the repository root.

@@ -6,7 +6,7 @@
     the same way, so the difference between arms is the integrator's;
   * the arms against each other on the observations both kept: CC of I, median sigma ratio;
   * I/sigma per shell;
-  * phenix.refine final Rwork/Rfree and the anomalous peak heights (anom_peaks.py).
+  * torchref final Rwork/Rfree (refine_torchref.py) and the anomalous peak heights (anom_peaks.py).
 
     python report.py --work WORK --integrators box,profile --runs r1 r2 ... --pdb 4YOP.pdb -o summary.json
 """
@@ -14,7 +14,6 @@ import argparse
 import glob
 import json
 import os
-import re
 
 import gemmi
 import numpy as np
@@ -22,8 +21,12 @@ import reciprocalspaceship as rs
 
 
 def read_stream(path, max_chunks=None):
-    """GLINT .stream -> (chunk, h, k, l, I, sigma) arrays, chunk counted from 0 in file order."""
-    rows = []
+    """GLINT .stream -> (chunk, h, k, l, I, sigma) float32 array, chunk counted from 0 in file order.
+
+    Reflection lines are collected as text and parsed in one np.loadtxt per file: a Python tuple per
+    reflection needs ~20x the memory, and the two arms of Dataset A hold 83 M of them.
+    """
+    lines, chunks = [], []
     chunk = -1
     inref = False
     with open(path) as f:
@@ -34,24 +37,39 @@ def read_stream(path, max_chunks=None):
                     break
             elif ln.startswith("Reflections measured after indexing"):
                 inref = True
+                next(f)                                  # the column header
             elif ln.startswith("End of reflections"):
                 inref = False
             elif inref:
-                p = ln.split()
-                if len(p) >= 5 and p[0].lstrip("-").isdigit():
-                    rows.append((chunk, int(p[0]), int(p[1]), int(p[2]), float(p[3]), float(p[4])))
-    if not rows:
-        return np.zeros((0, 6))
-    return np.array(rows)
+                lines.append(ln)
+                chunks.append(chunk)
+    if not lines:
+        return np.zeros((0, 6), np.float32)
+    x = np.loadtxt(lines, usecols=(0, 1, 2, 3, 4), dtype=np.float32, ndmin=2)
+    return np.column_stack([np.asarray(chunks, np.float32), x])
+
+
+def _hkl_key(H):
+    return (H[:, 0].astype(np.int64) + 512) * 1048576 + (H[:, 1] + 512) * 1024 + (H[:, 2] + 512)
 
 
 def fcalc_lookup(pdb, cell, sg, dmin):
-    """|Fcalc|^2 on the reciprocal ASU to dmin, as a dict keyed by ASU hkl."""
+    """|Fcalc|^2 on the reciprocal ASU to dmin, as (sorted ASU keys, |Fcalc|^2) for _lookup."""
     st = gemmi.read_structure(pdb)
     st.setup_entities()
     calc = gemmi.StructureFactorCalculatorX(st.cell)
     hkl = rs.utils.generate_reciprocal_asu(cell, sg, dmin, anomalous=False)
-    return {tuple(h): abs(calc.calculate_sf_from_model(st[0], [int(x) for x in h])) ** 2 for h in hkl}
+    f2 = np.array([abs(calc.calculate_sf_from_model(st[0], [int(x) for x in h])) ** 2 for h in hkl])
+    k = _hkl_key(hkl)
+    o = np.argsort(k)
+    return k[o], f2[o]
+
+
+def _lookup(table, H):
+    keys, f2 = table
+    k = _hkl_key(H)
+    i = np.clip(np.searchsorted(keys, k), 0, len(keys) - 1)
+    return np.where(keys[i] == k, f2[i], np.nan)
 
 
 def shells(d, n=8):
@@ -95,18 +113,22 @@ def main():
     F2 = fcalc_lookup(a.pdb, cell, sg, a.dmin)
     obs = {}
     for i in integs:
-        parts = []
-        for ri, r in enumerate(a.runs):
+        cols = {k: [] for k in ("run", "chunk", "H", "hkl", "I", "sig", "d", "f2")}
+        for ri, r in enumerate(a.runs):        # per run: hkl_to_asu expands every symop in int64
             x = read_stream(f"{a.work}/streams/{i}/{r}.stream", a.max_chunks or None)
-            if len(x):
-                x = np.column_stack([np.full(len(x), ri), x])
-                parts.append(x)
-        x = np.concatenate(parts)
-        H = rs.utils.hkl_to_asu(x[:, 2:5].astype(int), sg)[0]
-        d = cell.calculate_d_array(H)
-        f2 = np.array([F2.get(tuple(h), np.nan) for h in H])
-        obs[i] = dict(run=x[:, 0], chunk=x[:, 1], H=H, hkl=x[:, 2:5].astype(int), I=x[:, 5],
-                      sig=x[:, 6], d=d, f2=f2)
+            if not len(x):
+                continue
+            hkl = x[:, 1:4].astype(np.int16)
+            H = rs.utils.hkl_to_asu(hkl.astype(int), sg)[0]
+            cols["run"].append(np.full(len(x), ri, np.int16))
+            cols["chunk"].append(x[:, 0].astype(np.int32))
+            cols["hkl"].append(hkl)
+            cols["H"].append(H.astype(np.int16))
+            cols["I"].append(x[:, 4])
+            cols["sig"].append(x[:, 5])
+            cols["d"].append(cell.calculate_d_array(H).astype(np.float32))
+            cols["f2"].append(_lookup(F2, H).astype(np.float32))
+        obs[i] = {k: np.concatenate(v) for k, v in cols.items()}
     ref_d = np.concatenate([obs[i]["d"] for i in integs])
     _, edges = shells(ref_d[ref_d >= a.dmin])
     def shell_of(d):
@@ -130,7 +152,8 @@ def main():
     # --- the arms against each other, on the observations both kept ----------------------------
     if len(integs) == 2:
         A, B = (obs[i] for i in integs)
-        key = lambda o: o["run"] * 1e12 + o["chunk"] * 1e6 + (o["hkl"] + 50) @ np.array([1e4, 1e2, 1])
+        key = lambda o: ((o["run"].astype(np.int64) * 1000000 + o["chunk"]) * 1000000
+                         + (o["hkl"].astype(np.int64) + 50) @ np.array([10000, 100, 1]))
         ka, kb = key(A), key(B)
         common, ia, ib = np.intersect1d(ka, kb, return_indices=True)
         out["paired"] = {
@@ -143,12 +166,11 @@ def main():
     # --- refinement and anomalous peaks -------------------------------------------------------
     ref = {}
     for i in integs:
-        logp = f"{a.work}/refine/{i}/refine_1.log"
-        txt = open(logp).read() if os.path.exists(logp) else ""
-        m = re.findall(r"Final R-work = ([0-9.]+), R-free = ([0-9.]+)", txt)
-        st = re.findall(r"Start R-work = ([0-9.]+), R-free = ([0-9.]+)", txt)
-        ref[i] = {"rwork": float(m[-1][0]) if m else None, "rfree": float(m[-1][1]) if m else None,
-                  "start_rwork": float(st[-1][0]) if st else None, "start_rfree": float(st[-1][1]) if st else None}
+        sp = f"{a.work}/refine/{i}/stats.json"
+        st = json.load(open(sp)) if os.path.exists(sp) else {}
+        ref[i] = {"rwork": st.get("final", {}).get("rwork"), "rfree": st.get("final", {}).get("rfree"),
+                  "start_rwork": st.get("start", {}).get("rwork"),
+                  "start_rfree": st.get("start", {}).get("rfree")}
         pk = f"{a.work}/refine/{i}/anom_peaks.json"
         if os.path.exists(pk):
             ref[i]["anom"] = json.load(open(pk))

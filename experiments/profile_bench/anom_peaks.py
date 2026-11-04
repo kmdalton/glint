@@ -1,7 +1,7 @@
 """Anomalous difference peak heights at the anomalous scatterers of a refined model.
 
-Reads phenix.refine's map coefficients (ANOM/PHANOM), FFTs them to a map in units of its own RMS,
-and reports the maximum within --radius A of each S (Cys SG, Met SD), Cl and Na. As the null it
+Reads the refined MTZ's anomalous map coefficients (torchref's ANOM/PANOM; phenix's are
+ANOM/PHANOM), FFTs them to a map in units of its own RMS, and reports the maximum within --radius A of each S (Cys SG, Met SD), Cl and Na. As the null it
 also reports the highest peak more than 3 A from every one of those atoms. A site's height means
 nothing without the height of the best peak that is not a site.
 
@@ -21,7 +21,7 @@ def main():
     ap.add_argument("-o", "--out", required=True)
     ap.add_argument("--radius", type=float, default=1.5)
     ap.add_argument("--f", default="ANOM")
-    ap.add_argument("--phi", default="PHANOM")
+    ap.add_argument("--phi", default="PANOM")
     a = ap.parse_args()
 
     mtz = gemmi.read_mtz_file(a.mtz)

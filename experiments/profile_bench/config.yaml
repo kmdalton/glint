@@ -1,17 +1,17 @@
 # CXIDB 33 (HEWL, SACLA BL3, MPCCD, 7 keV; Nakane et al. 2015 native S/Cl SAD), Dataset A.
 # Every path below that is not under the repository is site-specific: edit `data` and the tool paths.
-data: /media/kmdalton/3bd97678-a8fe-47cb-bdd2-b2fdcc5569b1/data/xtal/cxidb_33
+# These are NERSC Perlmutter's; the envs are micromamba envs in the checkout (.mamba/, see README).
+data: /pscratch/sd/k/kmdalton/cxidb_33
 url: https://www.cxidb.org/data/33/cxidb_33_DatasetA.h5.tar
 md5: metadata/Dataset_A.md5sum              # relative to data; from cxidb_33_metadata.tar.gz
 geom: metadata/Dataset_A-opt.geom           # the deposit's refined geometry
 # runs: [run179641, ...]                    # default: every run in the md5 list that is on disk
 
-glint: /home/kmdalton/opt/glint
-python: /home/kmdalton/micromamba/bin/python          # torch + GLINT's dependencies
-abismal_bin: /home/kmdalton/micromamba/envs/abismal/bin
-phenix_env: /home/kmdalton/opt/phenix-1.21.2-5419/phenix_env.sh
+glint: /pscratch/sd/k/kmdalton/glint
+python: /pscratch/sd/k/kmdalton/glint/.mamba/envs/glint/bin/python   # torch, GLINT, torchref, rs, gemmi
+abismal_bin: /pscratch/sd/k/kmdalton/glint/.mamba/envs/glint/bin   # abismal, the PyTorch port (new-defaults)
 
-# reference model and the R-free flags both arms share (rs.rfree -d 1.0 -r 0.1)
+# reference model and the R-free flags both arms share (make_rfree.py)
 reference_pdb: reference/4YOP.pdb
 rfree_mtz: reference/r-free-flags.mtz
 
@@ -25,5 +25,6 @@ dmin: 1.9                   # integration / merging limit; the detector corner i
 tol: 0.002                  # Ewald gate, 1/A (found spots: 95% < 0.00084, 99% < 0.0014)
 
 integrators: [box, profile]
-abismal_epochs: 30
-abismal_steps: 1000
+abismal_epochs: 10          # the new-defaults branch's default; names the MTZ refine reads
+abismal_seed: 0
+refine_cycles: 5
