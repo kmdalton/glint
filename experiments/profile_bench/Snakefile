@@ -1,4 +1,4 @@
-# GLINT box integration vs the laue-dials profile fit (glint.profile_integrate), end to end on real
+# GLINT box integration vs the laue-dials profile fit (glint.profile_integrate) vs CrystFEL's rings, end to end on real
 # SFX data: CXIDB 33 Dataset A (HEWL, SACLA, 7 keV), merged with partialator, refined with torchref
 # against 4YOP, and scored on Rwork/Rfree and on the S/Cl anomalous difference peaks.
 #
@@ -17,6 +17,7 @@ HERE = workflow.basedir
 PY = f"PYTHONNOUSERSITE=1 PYTHONPATH={config['glint']} {config['python']} -u"
 PM = f"{config['data']}/work/partialator"      # the abismal merges and refinements stay in work/merge, work/refine
 INTEG = config["integrators"]
+GLINT_INTEG = [i for i in INTEG if i != "crystfel"]      # the arms index_integrate.py writes
 CELL = " ".join(str(c) for c in config["cell"])
 W = f"{DATA}/work"
 
@@ -102,18 +103,18 @@ rule peaks:
 
 
 rule index_integrate:
-    """Index once on the GPU, then integrate the same orientations with every integrator."""
+    """Index once on the GPU, then integrate the same orientations with every GLINT integrator."""
     input:
         peaks=f"{W}/peaks/{{run}}.npz",
         img=f"{W}/stacked/{{run}}.h5",
         geom=f"{W}/A.geom",
     output:
-        streams=[f"{W}/streams/{i}/{{run}}.stream" for i in INTEG],
+        streams=[f"{W}/streams/{i}/{{run}}.stream" for i in GLINT_INTEG],
         log=f"{W}/streams/{{run}}.json",
     log:
         f"{W}/logs/index_integrate_{{run}}.log",
     params:
-        integ=",".join(INTEG),
+        integ=",".join(GLINT_INTEG),
     resources:
         gpu=1,
         runtime=60,
@@ -122,6 +123,30 @@ rule index_integrate:
         "--cell {CELL} --lattice {config[lattice]} --out-dir {W}/streams --name {wildcards.run} "
         "--integrators {params.integ} --adu-per-photon {config[adu_per_photon]} "
         "--dmin {config[dmin]} --tol {config[tol]} > {log} 2>&1"
+
+
+rule crystfel_integrate:
+    """CrystFEL's integrator on the orientations index_integrate found, read back from the first GLINT
+    arm's stream, at the same excitation-error gate. Reads the raw files with the deposit's geometry."""
+    input:
+        stream=f"{W}/streams/{GLINT_INTEG[0]}/{{run}}.stream",
+        stack=f"{W}/stacked/{{run}}.h5",
+        raw=f"{DATA}/raw/A/{{run}}.h5",
+        geom=f"{DATA}/{config['geom']}",
+    output:
+        stream=f"{W}/streams/crystfel/{{run}}.stream",
+        log=f"{W}/streams/crystfel/{{run}}.json",
+    log:
+        f"{W}/logs/crystfel_integrate_{{run}}.log",
+    threads: 16
+    resources:
+        runtime=60,
+        mem_mb=30000,
+    shell:
+        "{PY} {HERE}/crystfel_integrate.py {input.stream} --stack {input.stack} --raw {input.raw} --geom {input.geom} "
+        "--crystfel-bin {config[crystfel_bin]} --lattice {config[crystfel_lattice]} --tol {config[tol]} "
+        "--integration {config[crystfel_integration]} --int-radius {config[crystfel_int_radius]} "
+        "-j {threads} -o {output.stream} > {log} 2>&1"
 
 
 rule merge:
@@ -234,7 +259,7 @@ rule report:
         f"{W}/logs/report.log",
     resources:
         runtime=60,
-        mem_mb=32000,       # ~5 GB a arm for Dataset A's 41 M observations
+        mem_mb=48000,       # ~5 GB a arm for Dataset A's 41 M observations
     shell:
         "{PY} {HERE}/report.py --work {W} --refine-dir {PM}/refine --integrators {params.integ} "
         "--runs {RUNS} --pdb {DATA}/{config[reference_pdb]} -o {output} > {log} 2>&1"

@@ -2,7 +2,7 @@
 
 Shells hold --shell reflections each (Bijvoet mates counted apart, as they were merged), walked out
 from low resolution; an arm's limit is the outer edge of its last shell before the first failure.
-The arms are compared on the same reflections, so `common` is the lower-resolution of their limits,
+The arms are compared on the same reflections, so `common` is the lowest-resolution of their limits,
 and it is the one the workflow cuts at.
 
     python cchalf_cut.py WORK/merge --integrators box,profile --cell 79.2 79.2 37.9 90 90 90 --sg "P 43 21 2" -o cut.json

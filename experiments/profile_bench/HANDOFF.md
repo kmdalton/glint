@@ -28,10 +28,26 @@ Free flags are ours, and the model was refined against these reflections, so Rfr
 | partialator | 1.9 A | each arm's own, see below | 0.173 / 0.187 | 0.186 / 0.198 |
 | partialator | 1.9 A | common, both mates | 0.173 / 0.187 | 0.170 / 0.182 |
 | partialator | 2.0 A, cut before French-Wilson | identical | 0.169 / 0.185 | 0.166 / 0.182 |
-| partialator | CC1/2 >= 0.3, 1.956 A (the workflow's) | same cut, box 39 fewer | 0.174 / 0.188 | 0.172 / 0.185 |
 | partialator | 2.1 A | common, both mates | 0.163 / 0.176 | 0.162 / 0.176 |
 | deposited I(+)/I(-) (control) | 2.1 A | deposit's | 0.157 / 0.165 | |
 
+The workflow's result, cut at CC1/2 >= 0.3 (1.957 A), about 16,610 reflections in each arm:
+
+| arm | Rwork / Rfree | S peaks, mean (range) | best non-site | Cl |
+|---|---|---|---|---|
+| box | 0.173 / 0.187 | 5.52 (4.67-6.73) | 4.71 | 6.24 |
+| profile | 0.171 / 0.184 | 5.61 (4.76-7.06) | 4.36 | 5.87 |
+| crystfel (`rings-nocen`, radii 4,5,7) | 0.171 / 0.182 | 5.51 (4.71-6.25) | 4.19 | 5.74 |
+
+Moving the limit from 1.956 to 1.957 A moved box's Rfree by 0.001, so treat differences of that size as noise.
+
+- **The crystfel arm integrates GLINT's orientations** through `indexamajig --indexing=file`
+  (`crystfel_integrate.py`), with refinement and checks off, so it is not CrystFEL's own full pipeline.
+  On one run the predicted positions match box's to a median 0 px and the gate-matched counts to 587 vs
+  591 a frame. Its intensities are in ADU, about 10x the GLINT arms'.
+- **Per shell on 9,133 identical reflections** (box, profile, crystfel): R at 2.1-2.05 A 0.224, 0.211, 0.213;
+  2.05-2.0 A 0.241, 0.210, 0.219; 2.0-1.957 A 0.314, 0.291, 0.283. Below 2.3 A they tie. CC1/2 at 2.05-2.0 A
+  0.849, 0.880, 0.808; 2.0-1.957 A 0.688, 0.782, 0.605.
 - **The bad R factors came from the abismal merges, not refinement or the model.** The control shows
   the protocol reproduces the deposit's Rwork. Why these abismal merges were poor is not established;
   they were run at the branch's defaults, and their amplitudes fall off far too slowly with resolution.
@@ -40,25 +56,25 @@ Free flags are ours, and the model was refined against these reflections, so Rfr
   positive, so at 1.9 A box lost 1,264 amplitudes and profile 73, and the count at the edge is unstable
   (profile 382 vs 73 between CrystFEL versions, on lists differing by one row). A 2.0 A cut gives none
   in either arm and 15,575 identical rows. The workflow now cuts before French-Wilson, but at its
-  1.956 A limit box still loses 37 amplitudes and profile none.
+  1.957 A limit no arm loses any. It is close: at 1.956 A box lost 37.
 - **On identical reflections profile wins past 2.1 A and ties below it** (per-shell R, separately
   scaled: 2.3-2.1 A 0.175 vs 0.182, 2.1-2.05 A 0.208 vs 0.223, 2.05-2.0 A 0.208 vs 0.243). Rfree is
   0.182 vs 0.185 at 2.0 A and equal at 2.1 A.
 - **CrystFEL version does not matter here.** 0.13.0 (`.mamba/envs/crystfel`) and the 0.10.1-151 Shifter
   image (`work/partialator_crystfel_0.10.1`) agree on CC1/2 and on R to within 0.001 where the reflections
   are the same.
-- **Box's merged mean intensity sits ~2.7 below profile's at high resolution** (2.3-1.95 A), while low
-  resolution agrees (149 vs 150). Box goes negative at 1.95-1.9 A (-9.5). Additive, so possibly a
-  background bias in one arm. Which arm is not established.
+- **Profile's merged mean intensity is the highest of the three at high resolution.** Relative to each
+  arm's own d > 3 A mean (x1000; box, profile, crystfel): 2.2-2.1 A 99, 114, 78; 2.05-2.0 A 35, 52, 30;
+  2.0-1.957 A 17, 36, 20. Box and crystfel use different background estimators and sit closer to each
+  other, which points at profile but does not show which is correct.
 - **Half-dataset CC1/2** (partialator, Bijvoet mates averaged): 2.05-2.0 A 0.919 vs 0.930,
   2.0-1.95 A 0.788 vs 0.877 (box vs profile). 1.95-1.9 A is unusable in both (0.21, -0.29).
 - **The limit is CC1/2 >= 0.3** (`cchalf_cut.py`, 300-reflection shells, Bijvoet mates apart): box 1.956 A,
-  profile 1.951 A, and both arms are cut at the worse one. Coarser shells move it by about 0.01 A.
+  profile 1.951 A, crystfel 1.957 A, and all arms are cut at the worst one, with no French-Wilson failures. Coarser shells move it by about 0.01 A.
   Mean intensity collapses across about 1.97-1.95 A in both arms, near the ~1.94 A detector corner.
-- **Anomalous peaks, at 1.956 A:** S 4.65-6.72 sigma, mean 5.52, best non-site 4.72 (box); S 4.77-7.07,
-  mean 5.61, best non-site 4.38 (profile). One box S site is below box's best noise peak; every profile
-  S site clears profile's. No uncertainty on this yet. The same map on the deposit's data at 2.1 A gives
-  S 8.84-11.86, mean 10.46, best non-site 5.53.
+- **Anomalous peaks** are in the table above. One box S site is just below box's best noise peak; every
+  S site clears the null in the other two arms. No uncertainty on this yet. The same map on the deposit's
+  data at 2.1 A gives S 8.84-11.86, mean 10.46, best non-site 5.53.
 - **The anomalous signal is weak.** Rank CCano is ~0.04 overall in both arms; Pearson CCano is dominated
   by outliers (largest difference ~90x the median) and should not be quoted. Rank CC of the difference
   to 4YOP's prediction is 0.24-0.25 overall; the deposited data gets 0.44.
@@ -78,7 +94,7 @@ Free flags are ours, and the model was refined against these reflections, so Rfr
 
 ## Next
 
-1. Find out which arm's background is biased, and check sigma calibration.
+1. Find out whether profile's higher mean intensity is bias, for example against Fcalc^2, and check sigma calibration.
 2. Put an uncertainty on the anomalous margin (for example, resampling frames) before calling it a difference.
 3. Write `RESULTS.md`.
 

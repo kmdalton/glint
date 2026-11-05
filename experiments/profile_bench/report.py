@@ -1,4 +1,4 @@
-"""Collect the box-vs-profile benchmark into one summary.json.
+"""Collect the integrator benchmark into one summary.json.
 
   * throughput and counts per arm: frames, reflections, peak-find / index / integrate seconds;
   * merge-free accuracy: per resolution shell, the Pearson CC between each arm's single-shot
@@ -12,6 +12,7 @@
 """
 import argparse
 import glob
+import itertools
 import json
 import os
 
@@ -21,7 +22,9 @@ import reciprocalspaceship as rs
 
 
 def read_stream(path, max_chunks=None):
-    """GLINT .stream -> (chunk, h, k, l, I, sigma) float32 array, chunk counted from 0 in file order.
+    """GLINT .stream -> (chunk, h, k, l, I, sigma) float32 array. `chunk` counts indexed lattices from 0
+    in file order, not stream chunks: GLINT writes a chunk for every frame, CrystFEL here only for indexed
+    ones, and the arms are paired on this number.
 
     Reflection lines are collected as text and parsed in one np.loadtxt per file: a Python tuple per
     reflection needs ~20x the memory, and the two arms of Dataset A hold 83 M of them.
@@ -31,11 +34,10 @@ def read_stream(path, max_chunks=None):
     inref = False
     with open(path) as f:
         for ln in f:
-            if ln.startswith("----- Begin chunk"):
+            if ln.startswith("Reflections measured after indexing"):
                 chunk += 1
                 if max_chunks and chunk >= max_chunks:
                     break
-            elif ln.startswith("Reflections measured after indexing"):
                 inref = True
                 next(f)                                  # the column header
             elif ln.startswith("End of reflections"):
@@ -103,8 +105,9 @@ def main():
         for k in ("t_peakfind_s", "t_index_s", "n_hits_with_peaks", "n_indexed"):
             tot[k] += j[k]
         for i in integs:
+            ji = j[i] if i in j else json.load(open(f"{a.work}/streams/{i}/{r}.json"))
             for k in tot[i]:
-                tot[i][k] += j[i][k]
+                tot[i][k] += ji[k]
     for i in integs:
         tot[i]["ms_per_frame"] = 1e3 * tot[i]["t_integrate_s"] / max(tot[i]["n_frames"], 1)
         tot[i]["refl_per_frame"] = tot[i]["n_refl"] / max(tot[i]["n_frames"], 1)
@@ -151,17 +154,19 @@ def main():
     out["accuracy"] = acc
 
     # --- the arms against each other, on the observations both kept ----------------------------
-    if len(integs) == 2:
-        A, B = (obs[i] for i in integs)
-        key = lambda o: ((o["run"].astype(np.int64) * 1000000 + o["chunk"]) * 1000000
-                         + (o["hkl"].astype(np.int64) + 50) @ np.array([10000, 100, 1]))
+    key = lambda o: ((o["run"].astype(np.int64) * 1000000 + o["chunk"]) * 1000000
+                     + (o["hkl"].astype(np.int64) + 50) @ np.array([10000, 100, 1]))
+    out["paired"] = {}
+    for x, y in itertools.combinations(integs, 2):
+        A, B = obs[x], obs[y]
         ka, kb = key(A), key(B)
         common, ia, ib = np.intersect1d(ka, kb, return_indices=True)
-        out["paired"] = {
-            "n_common": int(len(common)), f"n_only_{integs[0]}": int(len(ka) - len(common)),
-            f"n_only_{integs[1]}": int(len(kb) - len(common)),
+        out["paired"][f"{x}_{y}"] = {
+            "n_common": int(len(common)), f"n_only_{x}": int(len(ka) - len(common)),
+            f"n_only_{y}": int(len(kb) - len(common)),
             "cc_I": float(np.corrcoef(A["I"][ia], B["I"][ib])[0, 1]),
-            f"median_sigma_ratio_{integs[1]}_over_{integs[0]}": float(np.median(B["sig"][ib] / A["sig"][ia])),
+            f"mean_I_ratio_{y}_over_{x}": float(np.mean(B["I"][ib]) / np.mean(A["I"][ia])),
+            f"median_sigma_ratio_{y}_over_{x}": float(np.median(B["sig"][ib] / A["sig"][ia])),
         }
 
     # --- refinement and anomalous peaks -------------------------------------------------------

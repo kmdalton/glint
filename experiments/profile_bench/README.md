@@ -53,7 +53,8 @@ everything with `PYTHONNOUSERSITE=1`.
 | `stack` | int16 lzf `(event, ss, fs)` copy of each Cheetah per-tag file, one chunk per event (`stack_sacla.py`) |
 | `peaks` | GLINT v4 peak finding, host CPU, one job per run (`find_peaks.py`) |
 | `index_integrate` | GLINT known-cell indexing + strict gate on the GPU, then **the same orientations** integrated by each integrator (`index_integrate.py`) |
-| `merge` | `partialator -y 422 --model=unity --iterations=1`, then cut both arms at CC1/2 >= 0.3 (`cchalf_cut.py`) and French-Wilson per Bijvoet mate (`hkl_to_mtz.py`), identical settings per arm. Unity because GLINT's streams carry a placeholder profile radius, bandwidth and divergence |
+| `crystfel_integrate` | `indexamajig --indexing=file` on GLINT's orientations, at the same excitation-error gate, from the raw files |
+| `merge` | `partialator -y 422 --model=unity --iterations=1`, then cut all arms at CC1/2 >= 0.3 (`cchalf_cut.py`) and French-Wilson per Bijvoet mate (`hkl_to_mtz.py`), identical settings per arm. Unity because GLINT's streams carry a placeholder profile radius, bandwidth and divergence |
 | `refine` | torchref against 4YOP: B reset to 20, rigid body, 5 cycles of scale + isotropic ADP, shared free set (`refine_torchref.py`) |
 | `rfree` | the shared free set, 10% per ASU index to 1.0 Å (`make_rfree.py`) |
 | `anom_peaks` | anomalous map height at every S, Cl and Na, and the best peak that is not a site (`anom_peaks.py`) |

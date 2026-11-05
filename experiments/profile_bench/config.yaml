@@ -24,7 +24,10 @@ abs_thr: 100                # v4 finder, detector units (= 10 photons)
 dmin: 1.9                   # integration / merging limit; the detector corner is ~1.94 A at 52 mm
 tol: 0.002                  # Ewald gate, 1/A (found spots: 95% < 0.00084, 99% < 0.0014)
 
-integrators: [box, profile]
+integrators: [box, profile, crystfel]
+crystfel_lattice: tPc       # the crystfel arm replays GLINT's orientations (crystfel_integrate.py)
+crystfel_integration: rings-nocen
+crystfel_int_radius: 4,5,7  # CrystFEL's defaults; the paper does not report its radii
 point_group: '422'          # no inversion: Bijvoet mates stay apart
 partialator_iterations: 1
 min_cchalf: 0.3             # reported resolution limit: both arms cut where the worse one falls below this
