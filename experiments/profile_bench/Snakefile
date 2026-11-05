@@ -134,7 +134,6 @@ rule merge:
         hkl=f"{PM}/merge/{{integ}}/merged.hkl",
         hkl1=f"{PM}/merge/{{integ}}/merged.hkl1",
         hkl2=f"{PM}/merge/{{integ}}/merged.hkl2",
-        mtz=f"{PM}/merge/{{integ}}/merged.mtz",
     log:
         f"{W}/logs/partialator_{{integ}}.log",
     threads: 64
@@ -143,10 +142,40 @@ rule merge:
         mem_mb=120000,
     shell:
         "cd {PM}/merge/{wildcards.integ} && cat {input} > all.stream && "
-        "shifter --image={config[crystfel_image]} partialator -i all.stream -o merged.hkl -y {config[point_group]} "
+        "{config[crystfel_bin]}/partialator -i all.stream -o merged.hkl -y {config[point_group]} "
         "--model=unity --iterations={config[partialator_iterations]} --no-logs -j {threads} > {log} 2>&1 && "
-        "rm all.stream && "
-        "{PY} {HERE}/hkl_to_mtz.py merged.hkl -o merged.mtz --cell {CELL} --sg '{config[space_group]}' >> {log} 2>&1"
+        "rm all.stream"
+
+
+rule resolution_cut:
+    """The limit both arms are compared at, from CC1/2 >= config[min_cchalf] (cchalf_cut.py)."""
+    input:
+        expand(f"{PM}/merge/{{integ}}/merged.{{half}}", integ=INTEG, half=["hkl1", "hkl2"]),
+    output:
+        f"{PM}/merge/cut.json",
+    params:
+        integ=",".join(INTEG),
+    resources:
+        mem_mb=4000,
+    shell:
+        "{PY} {HERE}/cchalf_cut.py {PM}/merge --integrators {params.integ} --cell {CELL} "
+        "--sg '{config[space_group]}' --min {config[min_cchalf]} -o {output}"
+
+
+rule to_mtz:
+    """French-Wilson after the cut, so nothing past the limit changes the reflections that survive."""
+    input:
+        hkl=f"{PM}/merge/{{integ}}/merged.hkl",
+        cut=f"{PM}/merge/cut.json",
+    output:
+        f"{PM}/merge/{{integ}}/merged.mtz",
+    log:
+        f"{W}/logs/to_mtz_{{integ}}.log",
+    resources:
+        mem_mb=4000,
+    shell:
+        "{PY} {HERE}/hkl_to_mtz.py {input.hkl} -o {output} --cell {CELL} --sg '{config[space_group]}' "
+        "--dmin $({PY} -c \"import json;print(json.load(open('{input.cut}'))['common'])\") > {log} 2>&1"
 
 
 rule rfree:
@@ -164,6 +193,7 @@ rule refine:
         mtz=f"{PM}/merge/{{integ}}/merged.mtz",
         pdb=f"{DATA}/{config['reference_pdb']}",
         rfree=f"{DATA}/{config['rfree_mtz']}",
+        cut=f"{PM}/merge/cut.json",
     output:
         pdb=f"{PM}/refine/{{integ}}/refined.pdb",
         mtz=f"{PM}/refine/{{integ}}/refined.mtz",
@@ -176,7 +206,7 @@ rule refine:
         mem_mb=16000,
     shell:
         "TORCHREF_NUM_THREADS={threads} {PY} {HERE}/refine_torchref.py --mtz {input.mtz} --flags {input.rfree} --pdb {input.pdb} "
-        "--wavelength {WAVELENGTH} --dmin {config[dmin]} --cycles {config[refine_cycles]} "
+        "--wavelength {WAVELENGTH} --dmin $({PY} -c \"import json;print(json.load(open('{input.cut}'))['common'])\") --cycles {config[refine_cycles]} "
         "--device cpu -o {PM}/refine/{wildcards.integ} > {log} 2>&1"
 
 

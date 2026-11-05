@@ -30,8 +30,10 @@ Edit `data` and the tool paths in `config.yaml` first. The workflow needs one Py
 
 * `pip install -e . torchref reciprocalspaceship gemmi snakemake snakemake-executor-plugin-slurm`
   from the GLINT checkout, for peak finding, indexing, both integrators, refinement and the report;
-* CrystFEL's `partialator`, for merging. On Perlmutter that is the Shifter image in `crystfel_image`
-  (CrystFEL 0.10.1-151); the `merge` rule calls it through `shifter`, so edit the rule elsewhere;
+* CrystFEL's `partialator`, for merging, in its own env named by `crystfel_bin`. It is not on conda-forge
+  or bioconda, so build tag 0.13.0 from https://gitlab.desy.de/thomas.white/crystfel with meson in a
+  conda-forge env holding `compilers meson ninja pkg-config cmake flex bison gsl hdf5 zlib libpng cairo
+  pango gdk-pixbuf zeromq msgpack-c`;
 * the deposit's `cxidb_33_metadata.tar.gz`, unpacked into `data/metadata`;
 * `reference/4YOP.pdb`.
 
@@ -51,7 +53,7 @@ everything with `PYTHONNOUSERSITE=1`.
 | `stack` | int16 lzf `(event, ss, fs)` copy of each Cheetah per-tag file, one chunk per event (`stack_sacla.py`) |
 | `peaks` | GLINT v4 peak finding, host CPU, one job per run (`find_peaks.py`) |
 | `index_integrate` | GLINT known-cell indexing + strict gate on the GPU, then **the same orientations** integrated by each integrator (`index_integrate.py`) |
-| `merge` | `partialator -y 422 --model=unity --iterations=1`, then French-Wilson per Bijvoet mate (`hkl_to_mtz.py`), identical settings per arm. Unity because GLINT's streams carry a placeholder profile radius, bandwidth and divergence |
+| `merge` | `partialator -y 422 --model=unity --iterations=1`, then cut both arms at CC1/2 >= 0.3 (`cchalf_cut.py`) and French-Wilson per Bijvoet mate (`hkl_to_mtz.py`), identical settings per arm. Unity because GLINT's streams carry a placeholder profile radius, bandwidth and divergence |
 | `refine` | torchref against 4YOP: B reset to 20, rigid body, 5 cycles of scale + isotropic ADP, shared free set (`refine_torchref.py`) |
 | `rfree` | the shared free set, 10% per ASU index to 1.0 Å (`make_rfree.py`) |
 | `anom_peaks` | anomalous map height at every S, Cl and Na, and the best peak that is not a site (`anom_peaks.py`) |

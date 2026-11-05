@@ -9,7 +9,7 @@ geom: metadata/Dataset_A-opt.geom           # the deposit's refined geometry
 
 glint: /pscratch/sd/k/kmdalton/glint
 python: /pscratch/sd/k/kmdalton/glint/.mamba/envs/glint/bin/python   # torch, GLINT, torchref, rs, gemmi
-crystfel_image: fpoitevi/crystfel:latest   # Shifter image with partialator (CrystFEL 0.10.1-151)
+crystfel_bin: /pscratch/sd/k/kmdalton/glint/.mamba/envs/crystfel/bin   # CrystFEL 0.13.0, built from source (README)
 
 # reference model and the R-free flags both arms share (make_rfree.py)
 reference_pdb: reference/4YOP.pdb
@@ -27,4 +27,5 @@ tol: 0.002                  # Ewald gate, 1/A (found spots: 95% < 0.00084, 99% <
 integrators: [box, profile]
 point_group: '422'          # no inversion: Bijvoet mates stay apart
 partialator_iterations: 1
+min_cchalf: 0.3             # reported resolution limit: both arms cut where the worse one falls below this
 refine_cycles: 5
