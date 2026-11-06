@@ -8,6 +8,7 @@
 # Re-running is incremental: start it while the 243 GB download is still landing and it processes
 # the runs already on disk; run it again later and only the new runs, and everything downstream of
 # them, are redone. `--config runs=[run179641,run179651]` pins the run list.
+import glob
 import os
 import re
 
@@ -20,18 +21,21 @@ INTEG = config["integrators"]
 GLINT_INTEG = [i for i in INTEG if i != "crystfel"]      # the arms index_integrate.py writes
 CELL = " ".join(str(c) for c in config["cell"])
 W = f"{DATA}/work"
+RAW = f"{DATA}/{config['raw_dir']}"
 
 
 def _runs():
     if "runs" in config:
         return list(config["runs"])
+    if "md5" not in config:           # a deposit with no checksum list: every complete file on disk
+        return sorted(os.path.basename(p)[:-3] for p in glob.glob(f"{RAW}/{config.get('run_glob', '*')}.h5"))
     names = [ln.split()[1][:-3] for ln in open(f"{DATA}/{config['md5']}") if ln.strip()]
-    return [r for r in names if os.path.exists(f"{DATA}/raw/A/{r}.h5")]
+    return [r for r in names if os.path.exists(f"{RAW}/{r}.h5")]
 
 
 RUNS = _runs()
 localrules: all, fetch, geom, rfree
-WAVELENGTH = 1.7684          # 7011 eV; mean over the run files' photon_energy_ev
+WAVELENGTH = config["wavelength"]
 
 
 rule all:
@@ -39,25 +43,27 @@ rule all:
         f"{PM}/report/summary.json",
 
 
-rule fetch:
-    """Stream-extract the Dataset A tar (no second copy on disk). Skips members already present."""
-    output:
-        touch(f"{DATA}/raw/A/.complete"),
-    log:
-        f"{DATA}/logs/fetch_A.log",
-    shell:
-        "{config[python]} -I {HERE}/fetch_tar.py {config[url]} {DATA}/raw/A > {log} 2>&1"
+if "url" in config:
+    rule fetch:
+        """Stream-extract the deposit's tar (no second copy on disk). Skips members already present."""
+        output:
+            touch(f"{RAW}/.complete"),
+        log:
+            f"{DATA}/logs/fetch.log",
+        shell:
+            "{config[python]} -I {HERE}/fetch_tar.py {config[url]} {RAW} > {log} 2>&1"
 
 
-rule md5:
-    input:
-        f"{DATA}/raw/A/{{run}}.h5",
-    output:
-        f"{W}/md5/{{run}}.ok",
-    resources:
-        runtime=20,
-    shell:
-        "cd {DATA}/raw/A && grep ' {wildcards.run}.h5$' {DATA}/{config[md5]} | md5sum -c - > {output}"
+if "md5" in config:
+    rule md5:
+        input:
+            f"{RAW}/{{run}}.h5",
+        output:
+            f"{W}/md5/{{run}}.ok",
+        resources:
+            runtime=20,
+        shell:
+            "cd {RAW} && grep ' {wildcards.run}.h5$' {DATA}/{config[md5]} | md5sum -c - > {output}"
 
 
 rule geom:
@@ -73,8 +79,8 @@ rule geom:
 rule stack:
     """(event, ss, fs) int16 lzf copy of a Cheetah per-tag run file, one chunk per event."""
     input:
-        raw=f"{DATA}/raw/A/{{run}}.h5",
-        ok=f"{W}/md5/{{run}}.ok",
+        raw=f"{RAW}/{{run}}.h5",
+        ok=[f"{W}/md5/{{run}}.ok"] if "md5" in config else [],
     output:
         f"{W}/stacked/{{run}}.h5",
     resources:
@@ -131,7 +137,7 @@ rule crystfel_integrate:
     input:
         stream=f"{W}/streams/{GLINT_INTEG[0]}/{{run}}.stream",
         stack=f"{W}/stacked/{{run}}.h5",
-        raw=f"{DATA}/raw/A/{{run}}.h5",
+        raw=f"{RAW}/{{run}}.h5",
         geom=f"{DATA}/{config['geom']}",
     output:
         stream=f"{W}/streams/crystfel/{{run}}.stream",
@@ -163,8 +169,8 @@ rule merge:
         f"{W}/logs/partialator_{{integ}}.log",
     threads: 64
     resources:
-        runtime=240,
-        mem_mb=120000,
+        runtime=config["merge_runtime"],
+        mem_mb=config["merge_mem_mb"],
     shell:
         "cd {PM}/merge/{wildcards.integ} && cat {input} > all.stream && "
         "{config[crystfel_bin]}/partialator -i all.stream -o merged.hkl -y {config[point_group]} "
@@ -197,7 +203,7 @@ rule to_mtz:
     log:
         f"{W}/logs/to_mtz_{{integ}}.log",
     resources:
-        mem_mb=4000,
+        mem_mb=32000,       # French-Wilson on ~0.2 M merged reflections OOMs at 4 GB
     shell:
         "{PY} {HERE}/hkl_to_mtz.py {input.hkl} -o {output} --cell {CELL} --sg '{config[space_group]}' "
         "--dmin $({PY} -c \"import json;print(json.load(open('{input.cut}'))['common'])\") > {log} 2>&1"
@@ -227,7 +233,7 @@ rule refine:
         f"{W}/logs/refine_{{integ}}.log",
     threads: 8
     resources:
-        runtime=60,
+        runtime=config["refine_runtime"],
         mem_mb=16000,
     shell:
         "TORCHREF_NUM_THREADS={threads} {PY} {HERE}/refine_torchref.py --mtz {input.mtz} --flags {input.rfree} --pdb {input.pdb} "
@@ -259,7 +265,7 @@ rule report:
         f"{W}/logs/report.log",
     resources:
         runtime=60,
-        mem_mb=48000,       # ~5 GB a arm for Dataset A's 41 M observations
+        mem_mb=config["report_mem_mb"],      # ~5 GB a arm per 41 M observations
     shell:
         "{PY} {HERE}/report.py --work {W} --refine-dir {PM}/refine --integrators {params.integ} "
-        "--runs {RUNS} --pdb {DATA}/{config[reference_pdb]} -o {output} > {log} 2>&1"
+        "--cell {CELL} --sg '{config[space_group]}' --dmin {config[dmin]} --runs {RUNS} --pdb {DATA}/{config[reference_pdb]} -o {output} > {log} 2>&1"

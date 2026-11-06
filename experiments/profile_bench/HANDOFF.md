@@ -71,7 +71,12 @@ Moving the limit from 1.956 to 1.957 A moved box's Rfree by 0.001, so treat diff
   2.0-1.95 A 0.788 vs 0.877 (box vs profile). 1.95-1.9 A is unusable in both (0.21, -0.29).
 - **The limit is CC1/2 >= 0.3** (`cchalf_cut.py`, 300-reflection shells, Bijvoet mates apart): box 1.956 A,
   profile 1.951 A, crystfel 1.957 A, and all arms are cut at the worst one, with no French-Wilson failures. Coarser shells move it by about 0.01 A.
-  Mean intensity collapses across about 1.97-1.95 A in both arms, near the ~1.94 A detector corner.
+- **The limit is set by the detector, not the crystals.** Pixels cover 86% of the ring at 2.3 A, 50% at
+  2.2 A, 13% at 2.0 A and 6% at 1.96 A, so median multiplicity falls from ~2800 at 3-2.5 A to ~150 at
+  1.98-1.96 A. Then something cuts the data off: at r ~1408 px (1.96 A) mean background drops about tenfold
+  within ~10 px on all four corner panels (from ~4 to ~0.45 ADU; q4 starts earlier), and found spots drop
+  from 0.034 to 0.0006 per 10^4 pixels. It looks like a shadow or aperture; what casts it is not known.
+  The geometric corner is 1.918 A. `probe/edge/` has the scripts.
 - **Anomalous peaks** are in the table above. One box S site is just below box's best noise peak; every
   S site clears the null in the other two arms. No uncertainty on this yet. The same map on the deposit's
   data at 2.1 A gives S 8.84-11.86, mean 10.46, best non-site 5.53.

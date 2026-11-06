@@ -5,6 +5,12 @@ data: /pscratch/sd/k/kmdalton/cxidb_33
 url: https://www.cxidb.org/data/33/cxidb_33_DatasetA.h5.tar
 md5: metadata/Dataset_A.md5sum              # relative to data; from cxidb_33_metadata.tar.gz
 geom: metadata/Dataset_A-opt.geom           # the deposit's refined geometry
+raw_dir: raw/A
+wavelength: 1.7684          # 7011 eV; mean over the run files' photon_energy_ev
+merge_runtime: 240
+merge_mem_mb: 120000
+refine_runtime: 60
+report_mem_mb: 48000
 # runs: [run179641, ...]                    # default: every run in the md5 list that is on disk
 
 glint: /pscratch/sd/k/kmdalton/glint
@@ -21,7 +27,7 @@ space_group: P 43 21 2
 adu_per_photon: 10          # deposit README: 1 photon = 10 counts
 sig_floor: 10               # v4 finder, detector units (= 1 photon)
 abs_thr: 100                # v4 finder, detector units (= 10 photons)
-dmin: 1.9                   # integration / merging limit; the detector corner is ~1.94 A at 52 mm
+dmin: 1.9                   # integration / merging limit; the detector corner is 1.92 A, but the data stop at ~1.96 A (HANDOFF)
 tol: 0.002                  # Ewald gate, 1/A (found spots: 95% < 0.00084, 99% < 0.0014)
 
 integrators: [box, profile, crystfel]

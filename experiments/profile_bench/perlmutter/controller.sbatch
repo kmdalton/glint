@@ -11,4 +11,4 @@
 # The -o path and the paths below are this checkout's; edit them for another.
 export PYTHONNOUSERSITE=1
 cd /pscratch/sd/k/kmdalton/glint/experiments/profile_bench
-/pscratch/sd/k/kmdalton/glint/.mamba/envs/glint/bin/snakemake -s Snakefile --configfile config.yaml --workflow-profile perlmutter ${TARGET}
+/pscratch/sd/k/kmdalton/glint/.mamba/envs/glint/bin/snakemake -s Snakefile --configfile ${CONFIG:-config.yaml} --workflow-profile perlmutter ${TARGET}
