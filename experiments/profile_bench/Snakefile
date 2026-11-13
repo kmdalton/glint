@@ -20,6 +20,10 @@ PM = f"{config['data']}/work/partialator"      # the abismal merges and refineme
 INTEG = config["integrators"]
 GLINT_INTEG = [i for i in INTEG if i != "crystfel"]      # the arms index_integrate.py writes
 CELL = " ".join(str(c) for c in config["cell"])
+# The merges are in GLINT's setting (CELL); everything after the merge is in the reference model's
+# (MCELL, config[space_group]), reached with config[reindex]. The same unless config says otherwise.
+MCELL = " ".join(str(c) for c in config.get("model_cell", config["cell"]))
+REINDEX = config.get("reindex", "h,k,l")
 W = f"{DATA}/work"
 RAW = f"{DATA}/{config['raw_dir']}"
 
@@ -125,7 +129,7 @@ rule index_integrate:
         gpu=1,
         runtime=60,
     shell:
-        "{PY} {HERE}/index_integrate.py --peaks {input.peaks} --images {input.img} --geom {input.geom} "
+        "{HERE}/perlmutter/with_gpu.sh env {PY} {HERE}/index_integrate.py --peaks {input.peaks} --images {input.img} --geom {input.geom} "
         "--cell {CELL} --lattice {config[lattice]} --out-dir {W}/streams --name {wildcards.run} "
         "--integrators {params.integ} --adu-per-photon {config[adu_per_photon]} "
         "--dmin {config[dmin]} --tol {config[tol]} > {log} 2>&1"
@@ -189,8 +193,8 @@ rule resolution_cut:
     resources:
         mem_mb=4000,
     shell:
-        "{PY} {HERE}/cchalf_cut.py {PM}/merge --integrators {params.integ} --cell {CELL} "
-        "--sg '{config[space_group]}' --min {config[min_cchalf]} -o {output}"
+        "{PY} {HERE}/cchalf_cut.py {PM}/merge --integrators {params.integ} --cell {MCELL} "
+        "--sg '{config[space_group]}' --reindex {REINDEX} --min {config[min_cchalf]} -o {output}"
 
 
 rule to_mtz:
@@ -205,7 +209,7 @@ rule to_mtz:
     resources:
         mem_mb=32000,       # French-Wilson on ~0.2 M merged reflections OOMs at 4 GB
     shell:
-        "{PY} {HERE}/hkl_to_mtz.py {input.hkl} -o {output} --cell {CELL} --sg '{config[space_group]}' "
+        "{PY} {HERE}/hkl_to_mtz.py {input.hkl} -o {output} --cell {MCELL} --sg '{config[space_group]}' --reindex {REINDEX} "
         "--dmin $({PY} -c \"import json;print(json.load(open('{input.cut}'))['common'])\") > {log} 2>&1"
 
 
@@ -214,7 +218,7 @@ rule rfree:
     output:
         f"{DATA}/{config['rfree_mtz']}",
     shell:
-        "{PY} {HERE}/make_rfree.py -o {output} --cell {CELL} --sg '{config[space_group]}'"
+        "{PY} {HERE}/make_rfree.py -o {output} --cell {MCELL} --sg '{config[space_group]}'"
 
 
 rule refine:
@@ -268,4 +272,4 @@ rule report:
         mem_mb=config["report_mem_mb"],      # ~5 GB a arm per 41 M observations
     shell:
         "{PY} {HERE}/report.py --work {W} --refine-dir {PM}/refine --integrators {params.integ} "
-        "--cell {CELL} --sg '{config[space_group]}' --dmin {config[dmin]} --runs {RUNS} --pdb {DATA}/{config[reference_pdb]} -o {output} > {log} 2>&1"
+        "--cell {MCELL} --sg '{config[space_group]}' --reindex {REINDEX} --dmin {config[dmin]} --runs {RUNS} --pdb {DATA}/{config[reference_pdb]} -o {output} > {log} 2>&1"

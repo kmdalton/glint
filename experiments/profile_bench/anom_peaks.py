@@ -1,7 +1,7 @@
 """Anomalous difference peak heights at the anomalous scatterers of a refined model.
 
 Reads the refined MTZ's anomalous map coefficients (torchref's ANOM/PANOM; phenix's are
-ANOM/PHANOM), FFTs them to a map in units of its own RMS, and reports the maximum within --radius A of each S (Cys SG, Met SD), Cl and Na. As the null it
+ANOM/PHANOM), FFTs them to a map in units of its own RMS, and reports the maximum within --radius A of each S (Cys SG, Met SD), Se (selenomethionine SE), Cl and Na. As the null it
 also reports the highest peak more than 3 A from every one of those atoms. A site's height means
 nothing without the height of the best peak that is not a site.
 
@@ -38,6 +38,7 @@ def main():
         for res in ch:
             for at in res:
                 if (res.name == "CYS" and at.name == "SG") or (res.name == "MET" and at.name == "SD") \
+                        or (res.name == "MSE" and at.name == "SE") \
                         or at.element.name in ("Cl", "Na"):
                     sites.append((f"{ch.name}/{res.name}{res.seqid.num}/{at.name}", at.pos))
     out = {"map_rms": rms, "sites": {}}
@@ -58,6 +59,8 @@ def main():
     out["max_non_site_peak"] = round(null, 2) if np.isfinite(null) else None
     s_heights = [v for k, v in out["sites"].items() if k.endswith(("/SG", "/SD"))]
     out["mean_S_height"] = round(float(np.mean(s_heights)), 2) if s_heights else None
+    se_heights = [v for k, v in out["sites"].items() if k.endswith("/SE")]
+    out["mean_Se_height"] = round(float(np.mean(se_heights)), 2) if se_heights else None
     with open(a.out, "w") as f:
         json.dump(out, f, indent=1)
     print(json.dumps(out, indent=1))

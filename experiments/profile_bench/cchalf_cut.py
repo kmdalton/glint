@@ -14,12 +14,13 @@ import gemmi
 import numpy as np
 import reciprocalspaceship as rs
 
-from hkl_to_mtz import read_hkl
+from hkl_to_mtz import read_hkl, reindex
 
 
-def load(path, cell, sg):
+def load(path, cell, sg, op="h,k,l"):
     x = read_hkl(path)
-    ds = rs.DataSet({"H": x[:, 0].astype(int), "K": x[:, 1].astype(int), "L": x[:, 2].astype(int),
+    H = reindex(x[:, :3], op)
+    ds = rs.DataSet({"H": H[:, 0], "K": H[:, 1], "L": H[:, 2],
                      "I": x[:, 3], "SIGI": x[:, 4]}, cell=cell, spacegroup=sg).infer_mtz_dtypes().set_index(["H", "K", "L"])
     ds = ds[ds["SIGI"] > 0].hkl_to_asu(anomalous=True).remove_absences()
     ds.merged = True
@@ -42,14 +43,15 @@ def main():
     ap.add_argument("--cell", nargs=6, type=float, required=True)
     ap.add_argument("--sg", required=True)
     ap.add_argument("--min", type=float, default=0.3)
+    ap.add_argument("--reindex", default="h,k,l", help="merge indices -> the --cell/--sg setting")
     ap.add_argument("--shell", type=int, default=300)
     ap.add_argument("-o", "--out", required=True)
     a = ap.parse_args()
     cell, sg = gemmi.UnitCell(*a.cell), gemmi.SpaceGroup(a.sg)
     out = {"min_cchalf": a.min, "shell": a.shell, "arms": {}, "shells": {}}
     for arm in a.integrators.split(","):
-        sh = shell_cchalf(load(f"{a.merge_dir}/{arm}/merged.hkl1", cell, sg),
-                          load(f"{a.merge_dir}/{arm}/merged.hkl2", cell, sg), a.shell)
+        sh = shell_cchalf(load(f"{a.merge_dir}/{arm}/merged.hkl1", cell, sg, a.reindex),
+                          load(f"{a.merge_dir}/{arm}/merged.hkl2", cell, sg, a.reindex), a.shell)
         n_ok = next((i for i, (_, cc) in enumerate(sh) if not cc >= a.min), len(sh))
         if n_ok == 0:
             raise SystemExit(f"{arm}: CC1/2 is below {a.min} in the lowest-resolution shell")

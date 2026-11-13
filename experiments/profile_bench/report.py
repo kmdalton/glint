@@ -20,6 +20,8 @@ import gemmi
 import numpy as np
 import reciprocalspaceship as rs
 
+from hkl_to_mtz import reindex
+
 
 def read_stream(path, max_chunks=None):
     """GLINT .stream -> (chunk, h, k, l, I, sigma) float32 array. `chunk` counts indexed lattices from 0
@@ -89,6 +91,7 @@ def main():
     ap.add_argument("--cell", nargs=6, type=float, default=[79.2, 79.2, 37.9, 90, 90, 90])
     ap.add_argument("--sg", default="P 43 21 2")
     ap.add_argument("--dmin", type=float, default=1.9)
+    ap.add_argument("--reindex", default="h,k,l", help="stream indices -> the --cell/--sg (model) setting")
     ap.add_argument("--max-chunks", type=int, default=0, help="per run, for the per-observation stats")
     ap.add_argument("-o", "--out", required=True)
     a = ap.parse_args()
@@ -122,7 +125,7 @@ def main():
             x = read_stream(f"{a.work}/streams/{i}/{r}.stream", a.max_chunks or None)
             if not len(x):
                 continue
-            hkl = x[:, 1:4].astype(np.int16)
+            hkl = reindex(x[:, 1:4], a.reindex).astype(np.int16)
             H = rs.utils.hkl_to_asu(hkl.astype(int), sg)[0]
             cols["run"].append(np.full(len(x), ri, np.int16))
             cols["chunk"].append(x[:, 0].astype(np.int32))
